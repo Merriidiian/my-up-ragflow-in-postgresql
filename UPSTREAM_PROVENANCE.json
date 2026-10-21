@@ -1,0 +1,24 @@
+{
+  "upstream": "https://github.com/infiniflow/ragflow",
+  "tag": "v1.0.0-rc2",
+  "commit": "ac29b4b29928ca65d3efca19b6cfae3f86069b81",
+  "archive_sha256": "0e523d52190be29f1bc4df4640efc1f2d183880555e8644eac269406a1a12678",
+  "scope": "core source subset; original upstream license preserved; no upstream Git history imported",
+  "roots": [
+    "cmd",
+    "internal",
+    "conf",
+    "example",
+    "sdk",
+    "test",
+    "tools",
+    "scripts",
+    "ragflow_deps"
+  ],
+  "excluded": [
+    "local state, dependencies, caches and compiled output",
+    "PEM/key/environment files",
+    "downloaded model/native/tokenizer artifacts",
+    "upstream UI and deployment outside core scope"
+  ]
+}

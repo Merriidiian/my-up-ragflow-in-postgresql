@@ -1,0 +1,628 @@
+package indexdoc
+
+import (
+	"reflect"
+	"testing"
+	"time"
+
+	"ragflow/internal/common"
+)
+
+func TestProcessChunksForPipeline_PreservesTypedMetadata(t *testing.T) {
+	want := map[string]any{
+		"year": float64(2025), "verified": false, "scalar": map[string]any{"x": 1},
+		"labels": []string{"a", "b", "c"}, "object": map[string]any{"x": 1},
+		"tags":    []any{"contract", float64(123)},
+		"outline": []any{map[string]any{"title": "Intro"}},
+	}
+	chunks := []map[string]any{
+		{"text": "first", "metadata": map[string]any{
+			"year": float64(2024), "verified": true, "scalar": map[string]any{"x": 1},
+			"labels": []any{"a", "b"}, "object": map[string]any{"x": 1},
+			"tags":    []any{"contract", float64(123)},
+			"outline": []any{map[string]any{"title": "Intro"}},
+		}},
+		{"text": "second", "metadata": map[string]any{
+			"year": float64(2025), "verified": false, "scalar": float64(42),
+			"labels": []any{"b", "c"}, "object": map[string]any{"x": 2},
+			"tags": false, "outline": float64(42),
+		}},
+		{"text": "third", "metadata": map[string]any{
+			"scalar": nil, "labels": "c",
+			"outline": []any{map[string]any{"title": "Replacement"}},
+		}},
+	}
+	got, err := ProcessChunksForPipeline(chunks, "doc-1", "report.pdf", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("metadata = %#v, want %#v", got, want)
+	}
+	for i, chunk := range chunks {
+		if _, exists := chunk["metadata"]; exists {
+			t.Fatalf("consumed metadata must be removed from chunk %d", i)
+		}
+	}
+}
+
+// =============================================================================
+// RenameTextToContentWithWeight - Python processChunks logic
+// =============================================================================
+
+func TestRenameTextToContentWithWeight_Basic(t *testing.T) {
+	chunk := map[string]any{"text": "hello world"}
+	RenameTextToContentWithWeight(chunk)
+	if _, exists := chunk["text"]; exists {
+		t.Error("text key should be removed")
+	}
+	if chunk["content_with_weight"] != "hello world" {
+		t.Errorf("content_with_weight = %q, want \"hello world\"", chunk["content_with_weight"])
+	}
+}
+
+func TestRenameTextToContentWithWeight_PreservesExisting(t *testing.T) {
+	chunk := map[string]any{"content_with_weight": "already set", "text": "hello"}
+	RenameTextToContentWithWeight(chunk)
+	if chunk["content_with_weight"] != "hello" {
+		t.Errorf("text must be authoritative at the storage boundary, got %q", chunk["content_with_weight"])
+	}
+	if _, exists := chunk["text"]; exists {
+		t.Error("text should still be removed")
+	}
+}
+
+func TestRenameTextToContentWithWeight_NoTextKey(t *testing.T) {
+	chunk := map[string]any{"other": "value"}
+	RenameTextToContentWithWeight(chunk)
+	if _, exists := chunk["content_with_weight"]; exists {
+		t.Error("should not add content_with_weight when no text key")
+	}
+}
+
+// =============================================================================
+// ProcessChunksForPipeline - Python: processChunks()
+// =============================================================================
+
+func TestProcessChunksForPipeline_SetsDocID(t *testing.T) {
+	chunks := []map[string]any{{"text": "hello world"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+
+	if chunks[0]["doc_id"] != "doc-1" {
+		t.Errorf("doc_id = %q, want \"doc-1\"", chunks[0]["doc_id"])
+	}
+	// kb_id is intentionally NOT set here: it is owned by the search engine at
+	// the write boundary (ES/Infinity InsertChunks), not by ingestion. See #17371.
+	if _, exists := chunks[0]["kb_id"]; exists {
+		t.Errorf("kb_id should not be set by ProcessChunksForPipeline, got %v", chunks[0]["kb_id"])
+	}
+}
+
+func TestProcessChunksForPipeline_SetsDocNameKwd(t *testing.T) {
+	chunks := []map[string]any{{"text": "hello"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+	if chunks[0]["docnm_kwd"] != "test-doc.pdf" {
+		t.Errorf("docnm_kwd = %q, want \"test-doc.pdf\"", chunks[0]["docnm_kwd"])
+	}
+}
+
+func TestProcessChunksForPipeline_SetsTimeFields(t *testing.T) {
+	now := time.Now()
+	chunks := []map[string]any{{"text": "hello"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", now)
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+
+	if timeStr, ok := chunks[0]["create_time"].(string); ok {
+		if timeStr != now.Format("2006-01-02 15:04:05") {
+			t.Errorf("create_time = %q, want %q", timeStr, now.Format("2006-01-02 15:04:05"))
+		}
+	} else {
+		t.Errorf("create_time should be string, got %T", chunks[0]["create_time"])
+	}
+	if ts, ok := chunks[0]["create_timestamp_flt"].(float64); ok {
+		expected := float64(now.UnixMicro()) / 1e6
+		if ts != expected {
+			t.Errorf("create_timestamp_flt = %f, want %f", ts, expected)
+		}
+	} else {
+		t.Errorf("create_timestamp_flt should be float64, got %T", chunks[0]["create_timestamp_flt"])
+	}
+}
+
+func TestProcessChunksForPipeline_GeneratesID(t *testing.T) {
+	chunks := []map[string]any{{"text": "hello"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+	id, ok := chunks[0]["id"].(string)
+	if !ok || id == "" {
+		t.Errorf("id should be non-empty string, got %v", chunks[0]["id"])
+	}
+}
+
+// TestProcessChunksForPipeline_RejectsNonStringText pins the strict contract:
+// non-string text must fail before chunk-id generation.
+func TestProcessChunksForPipeline_RejectsNonStringText(t *testing.T) {
+	chunks := []map[string]any{{"text": []any{"bad-shape"}}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err == nil {
+		t.Fatal("ProcessChunksForPipeline should reject non-string text")
+	}
+}
+
+// TestProcessChunksForPipeline_RemovesInternalPipelineFields pins that
+// processChunkPositions prunes the _pdf_positions internal field (the
+// parser-emitted position matrix) before indexing. The "image" field is
+// no longer dropped here — its lifecycle is owned by the chunker's
+// imageUploadDecorator (register.go + image_upload.go), which uploads and
+// deletes it at the chunker stage.
+func TestProcessChunksForPipeline_RemovesInternalPipelineFields(t *testing.T) {
+	chunks := []map[string]any{{
+		"text":           "hello",
+		"_pdf_positions": []any{[]any{0, 1, 2, 3, 4}},
+	}}
+
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+	if _, exists := chunks[0]["_pdf_positions"]; exists {
+		t.Fatalf("_pdf_positions should be removed before indexing: %v", chunks[0]["_pdf_positions"])
+	}
+}
+
+func TestProcessChunksForPipeline_PreservesExistingID(t *testing.T) {
+	chunks := []map[string]any{{"text": "hello", "id": "existing-id"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+	if chunks[0]["id"] != "existing-id" {
+		t.Errorf("existing id should be preserved, got %q", chunks[0]["id"])
+	}
+}
+
+// TestProcessChunksForPipeline_TableHTMLIDMatchesContent pins the table-HTML
+// redesign's core invariant: a table chunk arrives from the chunker with its
+// row rendered as HTML on "text" and an id already stamped (by the chunker's
+// decorator) from that HTML text. The persist boundary must keep the id
+// byte-consistent with the stored content_with_weight — both hash the same
+// HTML — so re-indexing stays stable and the displayed table never diverges
+// from the chunk id. (The old design stamped the id from the clean text while
+// storing HTML, which broke this.)
+func TestProcessChunksForPipeline_TableHTMLIDMatchesContent(t *testing.T) {
+	html := "<table>\n<tr><th>Name</th></tr>\n<tr><td>Alice</td></tr>\n</table>\n"
+	chunks := []map[string]any{{
+		"doc_type": "table",
+		"text":     html,
+		"id":       common.ChunkID("doc-1", html),
+	}}
+	if _, err := ProcessChunksForPipeline(chunks, "doc-1", "report.pdf", time.Now()); err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+	ck := chunks[0]
+	content, ok := ck["content_with_weight"].(string)
+	if !ok || content != html {
+		t.Fatalf("content_with_weight = %q, want the HTML text unchanged", content)
+	}
+	if want := common.ChunkID("doc-1", content); ck["id"] != want {
+		t.Fatalf("id = %v, want ChunkID(docID, content_with_weight) = %v", ck["id"], want)
+	}
+}
+
+func TestProcessChunksForPipeline_QuestionsProcessing(t *testing.T) {
+	chunks := []map[string]any{{"text": "hello", "questions": "Q1\nQ2\nQ3"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+
+	if _, exists := chunks[0]["questions"]; exists {
+		t.Error("questions key should be removed")
+	}
+	kwd, ok := chunks[0]["question_kwd"].([]string)
+	if !ok {
+		t.Fatalf("question_kwd should be []string, got %T", chunks[0]["question_kwd"])
+	}
+	if len(kwd) != 3 {
+		t.Errorf("question_kwd len = %d, want 3", len(kwd))
+	}
+	if _, ok := chunks[0]["question_tks"]; ok {
+		t.Errorf("question_tks must NOT be produced by executor (owned by Tokenizer), got %T", chunks[0]["question_tks"])
+	}
+}
+
+// TestProcessChunksForPipeline_MetadataMapAggregated pins the normal contract:
+// ck["metadata"] produced by the Extractor (the merge of enable_metadata +
+// field_name="metadata") is a map[string]any and is aggregated into the
+// returned doc-level metadata.
+func TestProcessChunksForPipeline_MetadataMapAggregated(t *testing.T) {
+	chunks := []map[string]any{
+		{"text": "hello", "metadata": map[string]any{"category": "finance", "region": "east"}},
+	}
+	metadata, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+	if metadata["category"] != "finance" {
+		t.Errorf("category = %v, want finance", metadata["category"])
+	}
+	if metadata["region"] != "east" {
+		t.Errorf("region = %v, want east", metadata["region"])
+	}
+	// The consumed metadata key must not leak onto the persisted chunk.
+	if _, exists := chunks[0]["metadata"]; exists {
+		t.Error("metadata key should be removed from the chunk after aggregation")
+	}
+}
+
+// TestProcessChunksForPipeline_MetadataNonMapDropped pins the strict contract:
+// ck["metadata"] is Extractor-owned and always a map[string]any. A non-map
+// value (e.g. a JSON string, as field_name="metadata" used to emit before the
+// extractor unified to map) is a contract violation — it is dropped with a
+// warning, never guess-parsed, so an upstream bug surfaces instead of silently
+// producing document metadata.
+func TestProcessChunksForPipeline_MetadataNonMapDropped(t *testing.T) {
+	for name, value := range map[string]any{
+		"json_string": `{"category":"finance","region":"east"}`,
+		"fenced":      "```json\n{\"category\":\"law\"}\n```",
+		"not_json":    "this is not json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			chunks := []map[string]any{{"text": "hello", "metadata": value}}
+			metadata, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+			if err != nil {
+				t.Fatalf("ProcessChunksForPipeline: %v", err)
+			}
+			if len(metadata) != 0 {
+				t.Errorf("metadata = %v, want empty (non-map metadata dropped)", metadata)
+			}
+			if _, exists := chunks[0]["metadata"]; exists {
+				t.Error("metadata key should be removed from the chunk after aggregation")
+			}
+		})
+	}
+}
+
+func TestProcessChunksForPipeline_KeywordsProcessing(t *testing.T) {
+	chunks := []map[string]any{{"text": "hello", "keywords": "kw1,kw2;kw3"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+
+	if _, exists := chunks[0]["keywords"]; exists {
+		t.Error("keywords key should be removed")
+	}
+	kwd, ok := chunks[0]["important_kwd"].([]string)
+	if !ok || len(kwd) == 0 {
+		t.Errorf("important_kwd should be non-empty []string, got %v", chunks[0]["important_kwd"])
+	}
+	if _, ok := chunks[0]["important_tks"]; ok {
+		t.Errorf("important_tks must NOT be produced by executor (owned by Tokenizer), got %T", chunks[0]["important_tks"])
+	}
+}
+
+func TestProcessChunksForPipeline_SummaryProcessing(t *testing.T) {
+	chunks := []map[string]any{{"text": "hello", "summary": "This is a summary."}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+
+	if _, exists := chunks[0]["summary"]; exists {
+		t.Error("summary key should be removed")
+	}
+	if _, ok := chunks[0]["content_ltks"]; ok {
+		t.Errorf("content_ltks must NOT be produced by executor (owned by Tokenizer), got %T", chunks[0]["content_ltks"])
+	}
+	if _, ok := chunks[0]["content_sm_ltks"]; ok {
+		t.Errorf("content_sm_ltks must NOT be produced by executor (owned by Tokenizer), got %T", chunks[0]["content_sm_ltks"])
+	}
+}
+
+// TestProcessChunksForPipeline_PreservesTokenizerProducedFields documents the
+// Tokenizer-terminated contract: when the upstream Tokenizer already produced
+// the _tks/_ltks/_kwd fields, the executor preserves them untouched and only
+// strips the consumed source fields. The executor never re-tokenizes or
+// overwrites Tokenizer output.
+func TestProcessChunksForPipeline_PreservesTokenizerProducedFields(t *testing.T) {
+	chunks := []map[string]any{{
+		"text":            "hello",
+		"questions":       "Q1\nQ2",
+		"question_tks":    "tokenizer-output-tks",
+		"question_kwd":    []string{"preset-q-kwd"},
+		"keywords":        "kw1,kw2",
+		"important_tks":   "tokenizer-output-itks",
+		"important_kwd":   []string{"preset-i-kwd"},
+		"summary":         "a summary",
+		"content_ltks":    "tokenizer-output-ltks",
+		"content_sm_ltks": "tokenizer-output-smltks",
+	}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+
+	// Consumed source fields are stripped.
+	for _, k := range []string{"questions", "keywords", "summary"} {
+		if _, exists := chunks[0][k]; exists {
+			t.Errorf("%s should be removed (consumed by Tokenizer)", k)
+		}
+	}
+	// Tokenizer-produced fields are preserved verbatim (not overwritten).
+	if chunks[0]["question_tks"] != "tokenizer-output-tks" {
+		t.Errorf("question_tks overwritten: %v", chunks[0]["question_tks"])
+	}
+	if chunks[0]["important_tks"] != "tokenizer-output-itks" {
+		t.Errorf("important_tks overwritten: %v", chunks[0]["important_tks"])
+	}
+	if chunks[0]["content_ltks"] != "tokenizer-output-ltks" {
+		t.Errorf("content_ltks overwritten: %v", chunks[0]["content_ltks"])
+	}
+	if chunks[0]["content_sm_ltks"] != "tokenizer-output-smltks" {
+		t.Errorf("content_sm_ltks overwritten: %v", chunks[0]["content_sm_ltks"])
+	}
+	// Preset _kwd arrays are preserved (executor does not overwrite).
+	if kwd, ok := chunks[0]["question_kwd"].([]string); !ok || len(kwd) != 1 || kwd[0] != "preset-q-kwd" {
+		t.Errorf("question_kwd preset not preserved: %v", chunks[0]["question_kwd"])
+	}
+	if kwd, ok := chunks[0]["important_kwd"].([]string); !ok || len(kwd) != 1 || kwd[0] != "preset-i-kwd" {
+		t.Errorf("important_kwd preset not preserved: %v", chunks[0]["important_kwd"])
+	}
+}
+
+func TestProcessChunksForPipeline_TextRenamed(t *testing.T) {
+	chunks := []map[string]any{{"text": "hello world"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+
+	if _, exists := chunks[0]["text"]; exists {
+		t.Error("text key should be removed")
+	}
+	if chunks[0]["content_with_weight"] != "hello world" {
+		t.Errorf("content_with_weight = %q, want \"hello world\"", chunks[0]["content_with_weight"])
+	}
+}
+
+func TestProcessChunksForPipeline_TextAuthoritativeAtRename(t *testing.T) {
+	chunks := []map[string]any{{"content_with_weight": "already set", "text": "hello"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+	if chunks[0]["content_with_weight"] != "hello" {
+		t.Errorf("content_with_weight = %q, want %q", chunks[0]["content_with_weight"], "hello")
+	}
+}
+
+func TestProcessChunksForPipeline_RejectsMissingText(t *testing.T) {
+	chunks := []map[string]any{{"content_with_weight": "already set"}}
+	_, err := ProcessChunksForPipeline(chunks, "doc-1", "test-doc.pdf", time.Now())
+	if err == nil {
+		t.Fatal("ProcessChunksForPipeline should reject chunks without text")
+	}
+}
+
+func TestProcessChunkPositions_FlatFloat64(t *testing.T) {
+	chunk := map[string]any{
+		// positions is 1-indexed (parser normalized before we see it)
+		"positions": []float64{1, 100, 50, 200, 150},
+	}
+	processChunkPositions(chunk, false)
+
+	if _, exists := chunk["positions"]; exists {
+		t.Fatal("positions key must be removed")
+	}
+	pageNum := chunk["page_num_int"].([]int)
+	if len(pageNum) != 1 || pageNum[0] != 1 {
+		t.Errorf("page_num_int = %v, want [1]", pageNum)
+	}
+}
+
+func TestProcessChunkPositions_2DFloat64(t *testing.T) {
+	chunk := map[string]any{
+		"positions": [][]float64{
+			{1, 100, 50, 200, 150},
+			{2, 200, 60, 300, 250},
+		},
+	}
+	processChunkPositions(chunk, false)
+
+	if _, exists := chunk["positions"]; exists {
+		t.Fatal("positions key must be removed")
+	}
+	pageNum := chunk["page_num_int"].([]int)
+	if len(pageNum) != 2 || pageNum[0] != 1 || pageNum[1] != 2 {
+		t.Errorf("page_num_int = %v, want [1 2]", pageNum)
+	}
+	top := chunk["top_int"].([]int)
+	if len(top) != 2 || top[0] != 200 || top[1] != 300 {
+		t.Errorf("top_int = %v, want [200 300]", top)
+	}
+}
+
+func TestProcessChunkPositions_NoPositions(t *testing.T) {
+	// _pdf_positions is pruned unconditionally, even on the early-return path
+	// where "positions" is absent, since the two fields are independent.
+	chunk := map[string]any{
+		"text":           "hello",
+		"_pdf_positions": []any{[]any{0, 1, 2, 3, 4}},
+	}
+	processChunkPositions(chunk, false)
+	if _, exists := chunk["page_num_int"]; exists {
+		t.Error("page_num_int must not be set when positions is missing")
+	}
+	if _, exists := chunk["_pdf_positions"]; exists {
+		t.Error("_pdf_positions must be pruned even when positions is missing")
+	}
+}
+
+// TestCleanupConsumedChunkFields_ImportantKwdMultiDelimiter pins the executor
+// fallback's important_kwd materialization. When the Tokenizer component did
+// NOT pre-produce important_kwd, the executor falls back to
+// utility.SplitKeywords, which splits on the full delimiter set
+// (ASCII + CJK comma/semicolon/ideographic-comma/newline) and DROPS empty
+// parts. This is intentionally different from the Tokenizer component path
+// (internal/ingestion/component/tokenizer.go:690), which splits on the ENGLISH
+// COMMA ONLY and PRESERVES empty elements to match the DSL
+// (rag/flow/tokenizer/tokenizer.py:153 `keywords.split(",")`).
+//
+// The two layers deliberately diverge: the component aligns to the DSL keyword
+// contract ("delimited by ENGLISH COMMA"); the executor fallback mirrors
+// Python task_executor.run_dataflow:879 and tolerates mixed delimiters from
+// older upstream producers. Neither side should be "unified" to the other —
+// changing one without the other silently breaks the documented parity
+// boundary. The component-side half of this contract is locked by
+// TestTokenizerComponent_ImportantKwd_CommaOnly in the component package.
+func TestCleanupConsumedChunkFields_ImportantKwdMultiDelimiter(t *testing.T) {
+	ck := map[string]any{"text": "hello", "keywords": "kw1,kw2;kw3，kw4"}
+
+	cleanupConsumedChunkFields(ck)
+
+	kwd, ok := ck["important_kwd"].([]string)
+	if !ok {
+		t.Fatalf("important_kwd should be []string, got %T", ck["important_kwd"])
+	}
+	// Executor fallback splits on comma/semicolon/CJK-comma and drops empties:
+	// "kw1,kw2;kw3，kw4" -> ["kw1","kw2","kw3","kw4"], NOT the component's
+	// ["kw1","kw2;kw3，kw4"].
+	want := []string{"kw1", "kw2", "kw3", "kw4"}
+	if len(kwd) != len(want) {
+		t.Fatalf("executor important_kwd = %v, want %v (multi-delimiter, empties dropped)", kwd, want)
+	}
+	for i := range want {
+		if kwd[i] != want[i] {
+			t.Errorf("executor important_kwd[%d] = %q, want %q", i, kwd[i], want[i])
+		}
+	}
+	if _, exists := ck["keywords"]; exists {
+		t.Error("keywords source field should be consumed/removed")
+	}
+}
+
+// TestCleanupConsumedChunkFields_ImportantKwdDropsEmptyParts documents that the
+// executor fallback drops empty parts (e.g. the middle empty token in
+// "a,,b"), diverging from the component path which PRESERVES it as ["a","","b"].
+// Together with the component CommaOnly test this locks the intentional
+// divergence: same input, different important_kwd arrays per layer.
+func TestCleanupConsumedChunkFields_ImportantKwdDropsEmptyParts(t *testing.T) {
+	ck := map[string]any{"text": "hello", "keywords": "a,,b"}
+
+	cleanupConsumedChunkFields(ck)
+
+	kwd, ok := ck["important_kwd"].([]string)
+	if !ok {
+		t.Fatalf("important_kwd should be []string, got %T", ck["important_kwd"])
+	}
+	// Executor drops the empty middle part: ["a","b"], NOT ["a","","b"].
+	want := []string{"a", "b"}
+	if len(kwd) != len(want) || kwd[0] != "a" || kwd[1] != "b" {
+		t.Fatalf("executor important_kwd = %v, want %v (empty parts dropped)", kwd, want)
+	}
+}
+
+// TestProcessChunksForPipeline_StripsPipelineOnlyFields pins the index boundary
+// against the parser/chunker bookkeeping keys: none of them is a chunk-store
+// column, and a strict engine rejects the whole insert over one of them
+// ("Column ck_type not found in table", InfinityException 3013). ES only
+// swallowed them because its mapping is dynamic.
+func TestProcessChunksForPipeline_StripsPipelineOnlyFields(t *testing.T) {
+	ck := map[string]any{
+		"text": "hello",
+		// Every bookkeeping key the chunkers/parsers can leave on a chunk.
+		"ck_type": "text", "tk_nums": 3, "layout": "text", "layout_type": "text",
+		"layoutno": "0", "image": "data:image/png;base64,AAAA",
+		"context_above": "above", "context_below": "below", "page_number": 2,
+		"table_id": "t1", "sheet": "s1", "sheet_index": 0,
+		"headers": []string{"h"}, "cells": []string{"c"},
+		"row_start": 0, "row_end": 1, "col_start": 0, "col_end": 1,
+	}
+
+	if _, err := ProcessChunksForPipeline([]map[string]any{ck}, "doc-1", "Doc", time.Now()); err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+
+	for _, key := range pipelineOnlyFields {
+		if _, exists := ck[key]; exists {
+			t.Errorf("%q must be stripped before persist (no chunk column; a strict engine rejects the insert)", key)
+		}
+	}
+	if ck["content_with_weight"] != "hello" {
+		t.Errorf("content_with_weight = %v, want the chunk text (the strip must not touch persist fields)", ck["content_with_weight"])
+	}
+	if ck["doc_id"] != "doc-1" {
+		t.Errorf("doc_id = %v, want doc-1 (the strip must not touch persist fields)", ck["doc_id"])
+	}
+}
+
+// =============================================================================
+// processChunkPositions — the two position vocabularies
+// =============================================================================
+
+// TestProcessChunkPositions_SpreadsheetKeepsRowIndex: a spreadsheet chunk's
+// positions become position_int (the preview carrier) instead of being decoded
+// as PDF boxes — no page_num_int, and the chunk's own top_int (the QA row
+// index, aligned with Python's beAdoc) survives.
+func TestProcessChunkPositions_SpreadsheetKeepsRowIndex(t *testing.T) {
+	chunk := map[string]any{
+		"positions": [][]float64{{2, 42, 42, 1, 3}},
+		"top_int":   []int{41},
+	}
+	processChunkPositions(chunk, true)
+
+	matrix, ok := chunk["position_int"].([][]int)
+	if !ok || len(matrix) != 1 || matrix[0][0] != 2 || matrix[0][4] != 3 {
+		t.Fatalf("position_int = %v, want the sheet tuple", chunk["position_int"])
+	}
+	if _, exists := chunk["page_num_int"]; exists {
+		t.Errorf("page_num_int must not be derived from spreadsheet tuples: %v", chunk["page_num_int"])
+	}
+	if top, ok := chunk["top_int"].([]int); !ok || len(top) != 1 || top[0] != 41 {
+		t.Errorf("top_int = %v, want the chunk's own row index [41]", chunk["top_int"])
+	}
+	if _, exists := chunk["positions"]; exists {
+		t.Error("raw positions must be removed")
+	}
+}
+
+// TestProcessChunksForPipeline_SpreadsheetPositionsKeepRowIndex pins the whole
+// chunk loop: the spreadsheet identity has to be read before
+// stripPipelineOnlyFields removes sheet_index, or the positions of a
+// spreadsheet chunk would be decoded as PDF layout boxes.
+func TestProcessChunksForPipeline_SpreadsheetPositionsKeepRowIndex(t *testing.T) {
+	chunks := []map[string]any{{
+		"text":        "<table><tr><th>q</th><th>a</th></tr></table>",
+		"sheet_index": 1,
+		"top_int":     []int{41},
+		"positions":   [][]float64{{1, 42, 42, 1, 3}},
+	}}
+	if _, err := ProcessChunksForPipeline(chunks, "doc-1", "doc.xlsx", time.Now()); err != nil {
+		t.Fatalf("ProcessChunksForPipeline: %v", err)
+	}
+	ck := chunks[0]
+	if _, exists := ck["sheet_index"]; exists {
+		t.Error("sheet_index must be stripped at the index boundary")
+	}
+	matrix, ok := ck["position_int"].([][]int)
+	if !ok || len(matrix) != 1 || matrix[0][0] != 1 || matrix[0][1] != 42 {
+		t.Fatalf("position_int = %v, want the sheet tuple", ck["position_int"])
+	}
+	if _, exists := ck["page_num_int"]; exists {
+		t.Errorf("page_num_int must not be derived from spreadsheet tuples: %v", ck["page_num_int"])
+	}
+	if top, ok := ck["top_int"].([]int); !ok || len(top) != 1 || top[0] != 41 {
+		t.Errorf("top_int = %v, want the chunk's own row index [41]", ck["top_int"])
+	}
+}

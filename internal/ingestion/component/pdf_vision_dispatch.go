@@ -1,0 +1,1266 @@
+package component
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"ragflow/internal/common"
+	"ragflow/internal/entity"
+	modelModule "ragflow/internal/entity/models"
+	"ragflow/internal/ingestion/component/schema"
+	"ragflow/internal/parser/parser"
+	"ragflow/internal/rag/prompts"
+	"ragflow/internal/utility"
+
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+)
+
+// minerUDefaultLanguage is MinerU's own OCR language default, applied when
+// neither mineru_lang nor the family setup names one. It deliberately does not
+// consult the knowledge base: it is an engine input, not a caption setting.
+const minerUDefaultLanguage = "Chinese"
+
+type pdfVisionPage struct {
+	PageNumber int
+	WidthPts   float64
+	HeightPts  float64
+	ImageURL   string
+}
+
+const (
+	monkeyOCRv2MaxResponseBytes     = 512 << 20
+	monkeyOCRv2MaxZIPMembers        = 10000
+	monkeyOCRv2MaxUncompressedBytes = 2 << 30
+	monkeyOCRv2MaxImageBytes        = 64 << 20
+	monkeyOCRv2DefaultTimeout       = 600 * time.Second
+)
+
+var monkeyOCRv2ImagePattern = regexp.MustCompile(`!\[([^]]*)\]\(([^)]+)\)`)
+
+var (
+	pdfVisionPromptLoader  = (prompts.EmbeddedPromptLoader{}).Load
+	pdfVisionPageRenderer  = defaultRenderPDFVisionPages
+	pdfVisionModelResolver = defaultPDFVisionModelResolver
+	pdfVisionChatInvoker   = defaultPDFVisionChatInvoker
+)
+
+func maybeDispatchPDFVision(
+	ctx context.Context,
+	db *gorm.DB,
+	fileType utility.FileType,
+	filename string,
+	binary []byte,
+	inputs map[string]any,
+	setups map[string]schema.ParserSetup,
+) (parser.ParseResult, bool, error) {
+	if fileType != utility.FileTypePDF {
+		return parser.ParseResult{}, false, nil
+	}
+	setup, ok := setups["pdf"]
+	if !ok {
+		return parser.ParseResult{}, false, nil
+	}
+
+	method := getStringOr(setup, "parse_method", "")
+	layout := getStringOr(setup, "layout_recognizer", "")
+	tenantID := getStringOr(inputs, "tenant_id", "")
+	layoutLower := strings.ToLower(strings.TrimSpace(layout))
+
+	monkeySelector := layout
+	if strings.TrimSpace(monkeySelector) == "" {
+		monkeySelector = method
+	}
+	isMonkeyMatch := strings.EqualFold(strings.TrimSpace(method), "monkeyocrv2") ||
+		strings.HasPrefix(layoutLower, "monkeyocrv2") ||
+		strings.Contains(layoutLower, "@monkeyocrv2")
+	isMonkeyByUUID := false
+	if !isMonkeyMatch && tenantID != "" && strings.TrimSpace(monkeySelector) != "" && !parser.IsPDFParseMethod(monkeySelector) {
+		isMonkeyByUUID = isMonkeyOCRv2LayoutModelID(ctx, db, tenantID, monkeySelector)
+	}
+	if isMonkeyMatch || isMonkeyByUUID {
+		modelRef := ""
+		if isMonkeyByUUID {
+			modelRef = monkeySelector
+		} else if strings.Contains(monkeySelector, "@") {
+			modelRef = monkeySelector
+		}
+		res, err := dispatchMonkeyOCRv2PDF(ctx, db, filename, binary, tenantID, setup, modelRef)
+		return res, true, err
+	}
+
+	// MinerU dispatch: parse_method "mineru", a layout_recognizer naming
+	// MinerU, a composite model@instance@provider selector naming MinerU in
+	// either field, or a bare tenant model UUID (in either field) that
+	// resolves to a MinerU OCR model.
+	methodLower := strings.ToLower(strings.TrimSpace(method))
+	isMinerUMatch := methodLower == "mineru" ||
+		strings.HasPrefix(layoutLower, "mineru") ||
+		strings.Contains(layoutLower, "@mineru") ||
+		strings.Contains(methodLower, "@mineru")
+	minerUSelector := layout
+	if strings.TrimSpace(minerUSelector) == "" {
+		minerUSelector = method
+	}
+	isMinerUByUUID := false
+	if !isMinerUMatch && strings.TrimSpace(minerUSelector) != "" &&
+		!parser.IsPDFParseMethod(minerUSelector) {
+		isMinerUByUUID = isMinerULayoutModelID(ctx, db, tenantID, minerUSelector)
+	}
+	if isMinerUMatch || isMinerUByUUID {
+		common.Info("pdf vision dispatch: MinerU branch matched",
+			zap.String("parse_method", method),
+			zap.String("layout_recognizer", layout),
+			zap.String("tenant_id", tenantID))
+		if tenantID == "" {
+			return parser.ParseResult{}, true,
+				fmt.Errorf("parser: MinerU requires tenant_id")
+		}
+		dispatchModelID := ""
+		if isMinerUByUUID || strings.Contains(minerUSelector, "@") {
+			dispatchModelID = minerUSelector
+		}
+		res, err := dispatchMinerUPDF(ctx, db, filename, binary, tenantID, setup, dispatchModelID)
+		if err != nil {
+			return parser.ParseResult{}, true, err
+		}
+		return res, true, nil
+	}
+
+	// PaddleOCR dispatch: parse_method "paddleocr", a layout_recognizer whose
+	// provider/selectors name PaddleOCR, or a bare tenant model UUID (in
+	// either parse_method or layout_recognizer) that resolves to a PaddleOCR
+	// OCR model. A bare UUID carries no provider spelling in the string, so it
+	// is resolved first — mirroring Python's get_composite_model_name_by_id +
+	// normalize_layout_recognizer chain, which converts the raw model UUID
+	// into model@instance@provider before choosing the dispatch path.
+	isPaddleOCRMatch := strings.EqualFold(strings.TrimSpace(method), "paddleocr") ||
+		strings.HasPrefix(layoutLower, "paddleocr") ||
+		strings.Contains(layoutLower, "@paddleocr")
+	// The UUID may be placed in either parse_method or layout_recognizer;
+	// probe the non-empty one (layout takes precedence, then parse_method).
+	// The selector is used only for the UUID probe: a string-matched
+	// "paddleocr"/"@paddleocr" selector is a method name, not a model UUID,
+	// so it must never reach the model resolver. Named parse methods (e.g.
+	// "deepdoc") are likewise never probed as model UUIDs.
+	paddleOCRSelector := layout
+	if strings.TrimSpace(paddleOCRSelector) == "" {
+		paddleOCRSelector = method
+	}
+	isPaddleOCRByUUID := false
+	if !isPaddleOCRMatch && strings.TrimSpace(paddleOCRSelector) != "" &&
+		!parser.IsPDFParseMethod(paddleOCRSelector) {
+		isPaddleOCRByUUID = isPaddleOCRLayoutModelID(ctx, db, tenantID, paddleOCRSelector)
+	}
+	if isPaddleOCRMatch || isPaddleOCRByUUID {
+		if tenantID == "" {
+			return parser.ParseResult{}, true,
+				fmt.Errorf("parser: PaddleOCR requires tenant_id")
+		}
+		// Only a resolved UUID may be passed to the model resolver; a string
+		// match keeps the empty modelID so the tenant's PaddleOCR model is
+		// resolved by provider instead.
+		dispatchModelID := ""
+		if isPaddleOCRByUUID {
+			dispatchModelID = paddleOCRSelector
+		}
+		res, err := dispatchPaddleOCRPdf(ctx, db, filename, binary, tenantID, setup, dispatchModelID)
+		if err != nil {
+			return parser.ParseResult{}, true, err
+		}
+		return res, true, nil
+	}
+
+	modelID, useVision := resolvePDFVisionModelID(setup)
+	if !useVision {
+		return parser.ParseResult{}, false, nil
+	}
+	if tenantID == "" {
+		return parser.ParseResult{}, true, fmt.Errorf(
+			`parser: pdf parse_method %q requires tenant_id to resolve VLM model`, modelID)
+	}
+	pages, err := utility.NormalizePDFPages(setup["pages"])
+	if err != nil {
+		return parser.ParseResult{}, true, fmt.Errorf("parser: pdf vision pages: %w", err)
+	}
+	res, err := dispatchPDFVision(ctx, db, filename, binary, tenantID, modelID, pages)
+	if err != nil {
+		return parser.ParseResult{}, true, err
+	}
+	return res, true, nil
+}
+
+func dispatchMonkeyOCRv2PDF(ctx context.Context, db *gorm.DB, filename string, binary []byte, tenantID string, setup schema.ParserSetup, modelRef string) (parser.ParseResult, error) {
+	baseURL := strings.TrimRight(getStringOr(setup, "monkeyocrv2_server_url", os.Getenv(common.EnvMonkeyOCRv2ServerURL)), "/")
+	timeout := monkeyOCRv2RequestTimeout(setup, nil)
+	if tenantID != "" {
+		var driver modelModule.ModelDriver
+		var apiConfig *modelModule.APIConfig
+		var err error
+		if modelRef != "" {
+			driver, _, apiConfig, _, err = resolveModelConfig(ctx, db, tenantID, entity.ModelTypeOCR, modelRef)
+		} else {
+			driver, _, apiConfig, _, err = resolveTenantOCRModelByProvider(ctx, db, tenantID, "MonkeyOCRv2")
+		}
+		if err == nil {
+			if !strings.EqualFold(driver.Name(), "monkeyocrv2") {
+				return parser.ParseResult{}, fmt.Errorf("parser: MonkeyOCRv2 requires a MonkeyOCRv2 OCR model; found %q", driver.Name())
+			}
+			if apiConfig != nil && apiConfig.BaseURL != nil && strings.TrimSpace(*apiConfig.BaseURL) != "" {
+				baseURL = strings.TrimRight(*apiConfig.BaseURL, "/")
+			} else if configuredURL := modelModule.ProviderJSONConfigValueFromAPIConfig(apiConfig, "monkeyocrv2_server_url"); configuredURL != "" {
+				baseURL = strings.TrimRight(configuredURL, "/")
+			}
+			timeout = monkeyOCRv2RequestTimeout(setup, apiConfig)
+		} else if baseURL == "" {
+			return parser.ParseResult{}, fmt.Errorf("parser: MonkeyOCRv2 model: %w", err)
+		}
+	}
+	if baseURL == "" {
+		return parser.ParseResult{}, fmt.Errorf("parser: MonkeyOCRv2 requires monkeyocrv2_server_url or MONKEYOCRV2_SERVER_URL")
+	}
+	zipBytes, err := monkeyOCRv2ParseRequest(ctx, baseURL+"/parse", filename, binary, timeout)
+	if err != nil {
+		return parser.ParseResult{}, err
+	}
+	sections, err := monkeyOCRv2ExtractSections(zipBytes)
+	if err != nil {
+		return parser.ParseResult{}, err
+	}
+	md := strings.Join(sections, "\n\n")
+	return buildMarkdownOCRDispatchResult(md), nil
+}
+
+func parseMarkdownToJSONItems(ctx context.Context, filename, mdText string) []parser.DocItem {
+	mp, err := parser.NewMarkdownParser(parser.GoMarkdown)
+	if err != nil {
+		warnParserNormalizationFallback(filename, "markdown", err)
+		return []parser.DocItem{parser.NewTextJSONItem(mdText)}
+	}
+	// OCR Markdown is an untrusted backend response. Keep normalization
+	// deterministic and local: embedded data URIs remain available, while
+	// remote image URLs do not introduce network I/O at the Parser boundary.
+	mp.FetchRemoteImages = false
+	res := mp.ParseWithResult(ctx, filename, []byte(mdText))
+	if res.Err != nil {
+		warnParserNormalizationFallback(filename, "markdown", res.Err)
+		return []parser.DocItem{parser.NewTextJSONItem(mdText)}
+	}
+	if len(res.JSON) == 0 {
+		warnParserNormalizationFallback(filename, "markdown", fmt.Errorf("parser returned no JSON items"))
+		return []parser.DocItem{parser.NewTextJSONItem(mdText)}
+	}
+	return res.JSON
+}
+
+func buildMarkdownOCRDispatchResult(md string) parser.ParseResult {
+	// Keep the backend's Markdown intact here. buildParserOutputs is the
+	// single normalization boundary for all non-JSON parser responses.
+	return parser.ParseResult{
+		OutputFormat: "markdown",
+		Markdown:     md,
+	}
+}
+
+var isMonkeyOCRv2LayoutModelID = defaultIsMonkeyOCRv2LayoutModelID
+
+func defaultIsMonkeyOCRv2LayoutModelID(ctx context.Context, db *gorm.DB, tenantID, modelID string) bool {
+	if db == nil || strings.TrimSpace(modelID) == "" {
+		return false
+	}
+	driver, _, _, _, err := resolveModelConfigByID(ctx, db, tenantID, entity.ModelTypeOCR, modelID)
+	return err == nil && strings.EqualFold(driver.Name(), "monkeyocrv2")
+}
+
+func monkeyOCRv2ParseRequest(ctx context.Context, apiURL, filename string, binary []byte, timeout time.Duration) ([]byte, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("files", filepath.Base(filename))
+	if err != nil {
+		return nil, err
+	}
+	if _, err = part.Write(binary); err != nil {
+		return nil, err
+	}
+	_ = writer.WriteField("start_page_id", "0")
+	_ = writer.WriteField("end_page_id", "99999")
+	if err = writer.Close(); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, &body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	client := *http.DefaultClient
+	client.Timeout = timeout
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("MonkeyOCRv2 request: %w", err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, monkeyOCRv2MaxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > monkeyOCRv2MaxResponseBytes {
+		return nil, fmt.Errorf("MonkeyOCRv2 response exceeds %d bytes", monkeyOCRv2MaxResponseBytes)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MonkeyOCRv2 HTTP %d: %s", resp.StatusCode, string(data))
+	}
+	return data, nil
+}
+
+func monkeyOCRv2RequestTimeout(setup schema.ParserSetup, apiConfig *modelModule.APIConfig) time.Duration {
+	value := ""
+	if raw, ok := setup["monkeyocrv2_timeout"]; ok {
+		value = strings.TrimSpace(fmt.Sprint(raw))
+	}
+	if value == "" {
+		value = modelModule.ProviderJSONConfigValueFromAPIConfig(apiConfig, "monkeyocrv2_timeout", common.EnvMonkeyOCRv2Timeout)
+	}
+	if value == "" {
+		value = os.Getenv(common.EnvMonkeyOCRv2Timeout)
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return monkeyOCRv2DefaultTimeout
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func monkeyOCRv2ExtractSections(zipBytes []byte) ([]string, error) {
+	reader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("MonkeyOCRv2 returned invalid ZIP: %w", err)
+	}
+	if len(reader.File) > monkeyOCRv2MaxZIPMembers {
+		return nil, fmt.Errorf("MonkeyOCRv2 ZIP contains too many files")
+	}
+	var uncompressed uint64
+	for _, file := range reader.File {
+		uncompressed += file.UncompressedSize64
+		if uncompressed > monkeyOCRv2MaxUncompressedBytes {
+			return nil, fmt.Errorf("MonkeyOCRv2 ZIP is too large after extraction")
+		}
+	}
+	var canonicalJSON, legacyJSON []*zip.File
+	images := make(map[string]*zip.File)
+	for _, file := range reader.File {
+		if strings.HasPrefix(strings.ToLower(mime.TypeByExtension(path.Ext(file.Name))), "image/") {
+			images[path.Base(file.Name)] = file
+		}
+		cleanName := strings.TrimPrefix(path.Clean(file.Name), "./")
+		parts := strings.Split(cleanName, "/")
+		if len(parts) == 2 && parts[1] == parts[0]+".json" {
+			canonicalJSON = append(canonicalJSON, file)
+		}
+		if strings.Contains("/"+file.Name, "/jsons/") && strings.HasSuffix(file.Name, ".json") {
+			legacyJSON = append(legacyJSON, file)
+		}
+	}
+	candidates := canonicalJSON
+	if len(candidates) == 0 {
+		candidates = legacyJSON
+	}
+	if len(candidates) == 0 {
+		for _, file := range reader.File {
+			if strings.HasSuffix(file.Name, "all_results.json") {
+				candidates = append(candidates, file)
+			}
+		}
+	}
+	var sections []string
+	for _, file := range candidates {
+		rc, openErr := file.Open()
+		if openErr != nil {
+			return nil, openErr
+		}
+		data, readErr := io.ReadAll(rc)
+		rc.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		var raw any
+		if err = json.Unmarshal(data, &raw); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", file.Name, err)
+		}
+		sections = append(sections, monkeyOCRv2Texts(raw, images)...)
+	}
+	if len(sections) == 0 {
+		return nil, fmt.Errorf("MonkeyOCRv2 ZIP contains no textual layouts")
+	}
+	return sections, nil
+}
+
+func monkeyOCRv2Texts(raw any, images map[string]*zip.File) []string {
+	if object, ok := raw.(map[string]any); ok {
+		for _, key := range []string{"layouts", "content_list", "results", "items"} {
+			if value, exists := object[key]; exists {
+				return monkeyOCRv2Texts(value, images)
+			}
+		}
+		label := strings.ToLower(strings.ReplaceAll(getAnyString(object, "type", "label"), "_", "-"))
+		switch label {
+		case "page-header", "page-footer", "page-number", "discarded":
+			return nil
+		}
+		if label == "picture" || label == "figure" || label == "image" {
+			return monkeyOCRv2EmbeddedImage(getAnyString(object, "text", "content", "markdown"), images)
+		}
+		for _, key := range []string{"text", "content", "markdown", "table_body"} {
+			if text, ok := object[key].(string); ok && strings.TrimSpace(text) != "" {
+				return []string{text}
+			}
+		}
+		return nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	var result []string
+	for _, item := range items {
+		result = append(result, monkeyOCRv2Texts(item, images)...)
+	}
+	return result
+}
+
+func monkeyOCRv2EmbeddedImage(markdown string, images map[string]*zip.File) []string {
+	match := monkeyOCRv2ImagePattern.FindStringSubmatch(markdown)
+	if len(match) != 3 {
+		return nil
+	}
+	file := images[path.Base(strings.Trim(strings.TrimSpace(match[2]), `"'`))]
+	if file == nil || file.UncompressedSize64 > monkeyOCRv2MaxImageBytes {
+		return nil
+	}
+	rc, err := file.Open()
+	if err != nil {
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(rc, monkeyOCRv2MaxImageBytes+1))
+	rc.Close()
+	if err != nil || len(data) > monkeyOCRv2MaxImageBytes {
+		return nil
+	}
+	mediaType := mime.TypeByExtension(path.Ext(file.Name))
+	if mediaType == "" {
+		mediaType = http.DetectContentType(data)
+	}
+	return []string{fmt.Sprintf("![%s](data:%s;base64,%s)", match[1], mediaType, base64.StdEncoding.EncodeToString(data))}
+}
+
+func getAnyString(object map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := object[key].(string); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+// dispatchMinerUPDF submits a PDF to the selected MinerU OCR model.
+// MinerU 4.0 uses the V1 upload/job API; 3.x still POSTs /file_parse with
+// stream=True and returns a zip body (Python mineru_parser.py:parse_PDF).
+func dispatchMinerUPDF(
+	ctx context.Context,
+	db *gorm.DB,
+	filename string,
+	binary []byte,
+	tenantID string,
+	setup schema.ParserSetup,
+	modelID string,
+) (parser.ParseResult, error) {
+	driver, _, apiConfig, err := resolveMinerUModelForDispatch(ctx, db, tenantID, modelID)
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: MinerU model: %w", err)
+	}
+	if !isMinerUDriver(driver) {
+		return parser.ParseResult{}, fmt.Errorf(
+			"parser: MinerU requires a MinerU OCR model; found %q. Please add a MinerU OCR model to your tenant", driver.Name())
+	}
+
+	apiKeyRaw := ""
+	if apiConfig.ApiKey != nil {
+		apiKeyRaw = *apiConfig.ApiKey
+	}
+
+	baseURL := modelModule.ResolveMinerUAPIServer(apiConfig)
+	if baseURL == "" {
+		baseURL, _ = resolveMinerUBaseURL(driver, apiConfig)
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		return parser.ParseResult{}, fmt.Errorf("parser: MinerU requires a base URL (instance base_url, mineru_apiserver, or MINERU_APISERVER)")
+	}
+
+	parseMethod := mineruAPIParseMethod(getStringOr(setup, "mineru_parse_method", ""))
+	// MinerU's language is an OCR engine parameter, not the caption language:
+	// mineru_lang wins, then the family lang, then the engine's own default.
+	// That default used to arrive implicitly through defaultSetups() — which
+	// also fed captions, so a knowledge base that never chose a language got
+	// Chinese captions (issue #20727). Keeping it here confines it to the engine.
+	lang := firstNonEmpty(getStringOr(setup, "mineru_lang", ""), getStringOr(setup, "lang", ""))
+	if lang == "" {
+		lang = minerUDefaultLanguage
+	}
+	mineruLang := mineruLangCode(lang)
+	backend := modelModule.ResolveMinerUBackend(getStringOr(setup, "mineru_backend", ""), apiKeyRaw)
+	serverURL := modelModule.ResolveMinerUServerURL(getStringOr(setup, "mineru_server_url", ""), apiKeyRaw)
+
+	v1, err := modelModule.MinerUSupportsV1(ctx, baseURL, apiKeyRaw)
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: MinerU probe: %w", err)
+	}
+	if err := modelModule.ValidateMinerUConfigForAPI(backend, serverURL, v1); err != nil {
+		return parser.ParseResult{}, err
+	}
+
+	if v1 {
+		result, err := modelModule.ParseMinerUV1(ctx, baseURL, apiKeyRaw, filename, binary, backend, parseMethod, 0)
+		if err != nil {
+			return parser.ParseResult{}, fmt.Errorf("parser: MinerU V1: %w", err)
+		}
+		v1Markdown := ""
+		var zipBytes []byte
+		if result != nil {
+			v1Markdown = strings.TrimSpace(result.Markdown)
+			zipBytes = result.Zip
+		}
+		items, extractErr := mineruExtractJSONItems(zipBytes)
+		if extractErr == nil && len(items) > 0 {
+			return mineruJSONParseResult(filename, items), nil
+		}
+		if v1Markdown != "" {
+			return buildMarkdownOCRDispatchResult(result.Markdown), nil
+		}
+		if extractErr != nil {
+			return parser.ParseResult{}, fmt.Errorf("parser: MinerU extract: %w", extractErr)
+		}
+		return parser.ParseResult{}, fmt.Errorf("parser: MinerU extract: no sections")
+	}
+
+	apiURL := strings.TrimRight(baseURL, "/") + "/file_parse"
+	zipBytes, err := mineruStreamParse(apiURL, apiKeyRaw, binary, parseMethod, mineruLang, backend, serverURL)
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: MinerU stream: %w", err)
+	}
+
+	items, err := mineruExtractJSONItems(zipBytes)
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: MinerU extract: %w", err)
+	}
+
+	return mineruJSONParseResult(filename, items), nil
+}
+
+// resolveMinerUModelForDispatch resolves the OCR model used by the MinerU PDF
+// dispatch. modelID is the raw selector value: a bare tenant model UUID (no
+// "@") selects that exact model, a composite model@instance@provider name
+// resolves through the provider-instance chain, and an empty value falls back
+// to the tenant's first MinerU OCR model — mirroring Python's by_mineru,
+// which falls back to get_first_provider_model_name(tenant_id, "MinerU",
+// LLMType.OCR) for the named "mineru" selector.
+var resolveMinerUModelForDispatch = defaultResolveMinerUModelForDispatch
+
+func defaultResolveMinerUModelForDispatch(ctx context.Context, db *gorm.DB, tenantID, modelID string) (modelModule.ModelDriver, string, *modelModule.APIConfig, error) {
+	modelID = strings.TrimSpace(modelID)
+	if modelID != "" && !strings.Contains(modelID, "@") {
+		driver, modelName, apiConfig, _, err := resolveModelConfigByID(ctx, db, tenantID, entity.ModelTypeOCR, modelID)
+		return driver, modelName, apiConfig, err
+	}
+	if modelID != "" {
+		driver, modelName, apiConfig, _, err := resolveModelConfig(ctx, db, tenantID, entity.ModelTypeOCR, modelID)
+		return driver, modelName, apiConfig, err
+	}
+	driver, modelName, apiConfig, _, err := resolveTenantOCRModelByProvider(ctx, db, tenantID, "MinerU")
+	return driver, modelName, apiConfig, err
+}
+
+// resolvePaddleOCRModelForDispatch resolves the OCR model used by the
+// PaddleOCR PDF dispatch. modelID is the raw layout_recognizer value: a bare
+// tenant model UUID (no "@") selects that exact model regardless of provider
+// spelling ("PaddleOCR" or "PaddleOCR.local"); a composite name or empty value
+// falls back to the tenant's first PaddleOCR OCR model, mirroring Python's
+// by_paddleocr which uses get_first_provider_model_name(tenant, "PaddleOCR").
+//
+// Known limitation: composite names such as "some-model@instance@PaddleOCR.local"
+// (an explicit local selection) are not recognized here. Any value containing
+// "@" falls through to resolveTenantOCRModelByProvider("PaddleOCR"), which
+// returns the tenant's first active PaddleOCR OCR model — potentially the
+// local one — when both the local ("PaddleOCR.local") and the cloud
+// ("PaddleOCR") providers are configured. The Python path behaves the same
+// way; if exact selection is required, pass the model's tenant-model UUID
+// instead.
+var resolvePaddleOCRModelForDispatch = defaultResolvePaddleOCRModelForDispatch
+
+func defaultResolvePaddleOCRModelForDispatch(ctx context.Context, db *gorm.DB, tenantID, modelID string) (modelModule.ModelDriver, string, *modelModule.APIConfig, error) {
+	if strings.TrimSpace(modelID) != "" && !strings.Contains(modelID, "@") {
+		driver, modelName, apiConfig, _, err := resolveModelConfigByID(ctx, db, tenantID, entity.ModelTypeOCR, modelID)
+		return driver, modelName, apiConfig, err
+	}
+	driver, modelName, apiConfig, _, err := resolveTenantOCRModelByProvider(ctx, db, tenantID, "PaddleOCR")
+	return driver, modelName, apiConfig, err
+}
+
+// dispatchPaddleOCRPdf submits a PDF to the tenant's PaddleOCR OCR model and
+// returns parsed sections. The resolved driver runs the protocol it knows:
+// the cloud "PaddleOCR" driver submits a job and polls the v2/ocr/jobs
+// endpoint, the local "PaddleOCR.local" driver POSTs synchronously to
+// layout-parsing — both mirror the Python paddleocr_parser paths.
+func dispatchPaddleOCRPdf(
+	ctx context.Context,
+	db *gorm.DB,
+	filename string,
+	binary []byte,
+	tenantID string,
+	setup schema.ParserSetup,
+	modelID string,
+) (parser.ParseResult, error) {
+	driver, modelName, apiConfig, err := resolvePaddleOCRModelForDispatch(ctx, db, tenantID, modelID)
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: PaddleOCR model: %w", err)
+	}
+	if !isPaddleOCRDriver(driver) {
+		return parser.ParseResult{}, fmt.Errorf(
+			"parser: PaddleOCR requires a PaddleOCR OCR model; found %q. Please add a PaddleOCR OCR model to your tenant", driver.Name())
+	}
+
+	resp, err := driver.OCRFile(ctx, &modelName, binary, &filename, apiConfig, &modelModule.OCRConfig{
+		Algorithm: strings.TrimSpace(getStringOr(setup, "paddleocr_algorithm", "")),
+	}, nil)
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: PaddleOCR OCRFile: %w", err)
+	}
+	if resp == nil || resp.Text == nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: PaddleOCR returned empty text")
+	}
+	if strings.TrimSpace(*resp.Text) == "" {
+		return parser.ParseResult{}, fmt.Errorf("parser: PaddleOCR returned empty text")
+	}
+
+	return buildMarkdownOCRDispatchResult(*resp.Text), nil
+}
+
+// resolveMinerUBaseURL extracts the resolved base URL from a model driver.
+func resolveMinerUBaseURL(driver modelModule.ModelDriver, apiConfig *modelModule.APIConfig) (string, error) {
+	type baseURLGetter interface {
+		GetBaseURL(*modelModule.APIConfig) (string, error)
+	}
+	if g, ok := driver.(baseURLGetter); ok {
+		return g.GetBaseURL(apiConfig)
+	}
+	return "", fmt.Errorf("driver %q does not expose GetBaseURL", driver.Name())
+}
+
+// mineruLangCode maps a human-readable language name to a MinerU lang code,
+// mirroring Python's LANGUAGE_TO_MINERU_MAP in mineru_parser.py.
+func mineruLangCode(lang string) string {
+	switch strings.ToLower(lang) {
+	case "english":
+		return "en"
+	case "chinese":
+		return "ch"
+	case "traditional chinese":
+		return "chinese_cht"
+	case "japanese":
+		return "japan"
+	case "korean":
+		return "korean"
+	case "russian", "ukrainian":
+		return "east_slavic"
+	default:
+		return "ch"
+	}
+}
+
+// mineruAPIParseMethod constrains the /file_parse form field to the values
+// the MinerU API accepts (auto, txt, ocr), mirroring Python's
+// MinerUParseMethod. The value comes from the parser setup's dedicated
+// mineru_parse_method option; the setup's parse_method is a dispatch
+// selector ("mineru", a composite selector, or a tenant model UUID), never
+// an API method, so anything unrecognized falls back to the API default.
+func mineruAPIParseMethod(raw string) string {
+	method := strings.ToLower(strings.TrimSpace(raw))
+	switch method {
+	case "auto", "txt", "ocr":
+		return method
+	}
+	return "auto"
+}
+
+// mineruStreamParse POSTs the PDF binary to the MinerU /file_parse
+// endpoint with streaming and returns the zip response body.
+// Mirrors Python's mineru_parser.py._run_mineru_api with stream=True.
+func mineruStreamParse(apiURL string, apiKey string, binary []byte, parseMethod, lang, backend, serverURL string) ([]byte, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile("files", "document.pdf")
+	if err != nil {
+		return nil, fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := part.Write(binary); err != nil {
+		return nil, fmt.Errorf("write pdf: %w", err)
+	}
+
+	_ = writer.WriteField("backend", backend)
+	_ = writer.WriteField("parse_method", parseMethod)
+	_ = writer.WriteField("lang_list", lang)
+	_ = writer.WriteField("return_md", "true")
+	_ = writer.WriteField("return_content_list", "true")
+	_ = writer.WriteField("response_format_zip", "true")
+	_ = writer.WriteField("start_page_id", "0")
+	_ = writer.WriteField("end_page_id", "99999")
+	_ = writer.WriteField("return_images", "true")
+	_ = writer.WriteField("return_middle_json", "true")
+	_ = writer.WriteField("return_model_output", "true")
+	_ = writer.WriteField("formula_enable", "true")
+	_ = writer.WriteField("table_enable", "true")
+	if strings.TrimSpace(serverURL) != "" {
+		_ = writer.WriteField("server_url", strings.TrimRight(strings.TrimSpace(serverURL), "/"))
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("finalize form: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, &body)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if token := modelModule.MinerUBearerTokenFromAPIKey(apiKey); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(raw))
+	}
+
+	zipBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if len(zipBytes) == 0 {
+		return nil, fmt.Errorf("empty response from MinerU")
+	}
+	return zipBytes, nil
+}
+
+const mineruMaxImageBytes = 20 << 20
+
+// mineruExtractJSONItems reads MinerU content_list.json from a zip and
+// emits JSON parser items with captions, embedded zip images, and
+// 1-indexed _pdf_positions so jump-to-source works like DeepDoc.
+func mineruExtractJSONItems(zipBytes []byte) ([]map[string]any, error) {
+	zipReader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("open zip: %w", err)
+	}
+
+	images := make(map[string]*zip.File)
+	var contentList []byte
+	for _, f := range zipReader.File {
+		if strings.HasSuffix(f.Name, "content_list.json") && len(contentList) == 0 {
+			rc, openErr := f.Open()
+			if openErr != nil {
+				return nil, fmt.Errorf("open %s: %w", f.Name, openErr)
+			}
+			var readErr error
+			contentList, readErr = io.ReadAll(rc)
+			if closeErr := rc.Close(); readErr == nil {
+				readErr = closeErr
+			}
+			if readErr != nil {
+				return nil, fmt.Errorf("read %s: %w", f.Name, readErr)
+			}
+		}
+		if strings.HasPrefix(strings.ToLower(mime.TypeByExtension(path.Ext(f.Name))), "image/") {
+			clean := strings.TrimPrefix(path.Clean(f.Name), "./")
+			images[path.Base(f.Name)] = f
+			images[clean] = f
+			images[strings.ReplaceAll(clean, "\\", "/")] = f
+		}
+	}
+	if len(contentList) == 0 {
+		return nil, fmt.Errorf("content_list.json not found in MinerU zip")
+	}
+
+	var rawItems []map[string]any
+	if err = json.Unmarshal(contentList, &rawItems); err != nil {
+		return nil, fmt.Errorf("parse content_list.json: %w", err)
+	}
+
+	out := make([]map[string]any, 0, len(rawItems))
+	for _, item := range rawItems {
+		converted := mineruContentItemToJSON(item, images)
+		if converted != nil {
+			out = append(out, converted)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("MinerU zip contained no usable content_list items")
+	}
+	return out, nil
+}
+
+func mineruContentItemToJSON(item map[string]any, images map[string]*zip.File) map[string]any {
+	typ, _ := item["type"].(string)
+	typ = strings.ToLower(strings.TrimSpace(typ))
+	switch typ {
+	case "header", "footer", "page_number", "page-header", "page-footer", "discarded":
+		return nil
+	}
+
+	text := mineruItemText(item, typ)
+	imageURI := ""
+	docType := "text"
+	layout := typ
+	switch typ {
+	case "image", "chart":
+		docType = "image"
+		layout = "figure"
+		if imgPath, _ := item["img_path"].(string); imgPath != "" {
+			imageURI = mineruZipImageDataURI(images, imgPath)
+		}
+		if text == "" && imageURI == "" {
+			return nil
+		}
+	case "table":
+		docType = "table"
+		layout = "table"
+		if text == "" {
+			return nil
+		}
+	default:
+		if text == "" {
+			return nil
+		}
+	}
+
+	jsonItem := map[string]any{
+		"text":         text,
+		"doc_type_kwd": docType,
+		"layout":       layout,
+	}
+	if imageURI != "" {
+		jsonItem["image"] = imageURI
+	}
+	if positions := mineruItemPositions(item); len(positions) > 0 {
+		jsonItem["_pdf_positions"] = positions
+		jsonItem["positions"] = positions
+		if page, ok := positions[0][0].(int); ok {
+			jsonItem["page_number"] = page
+		}
+	}
+	return jsonItem
+}
+
+func mineruItemText(item map[string]any, typ string) string {
+	var parts []string
+	switch typ {
+	case "table":
+		if tb, ok := item["table_body"].(string); ok {
+			parts = append(parts, tb)
+		}
+		parts = append(parts, stringSlice(item["table_caption"])...)
+		parts = append(parts, stringSlice(item["table_footnote"])...)
+	case "image":
+		parts = append(parts, stringSlice(item["image_caption"])...)
+		parts = append(parts, stringSlice(item["image_footnote"])...)
+		if desc, ok := item["vlm_description"].(string); ok && strings.TrimSpace(desc) != "" {
+			parts = append(parts, desc)
+		}
+	case "chart":
+		parts = append(parts, stringSlice(item["chart_caption"])...)
+		parts = append(parts, stringSlice(item["chart_footnote"])...)
+		if desc, ok := item["vlm_description"].(string); ok && strings.TrimSpace(desc) != "" {
+			parts = append(parts, desc)
+		}
+	case "list":
+		parts = append(parts, stringSlice(item["list_items"])...)
+	case "code":
+		if body, ok := item["code_body"].(string); ok && body != "" {
+			parts = append(parts, body)
+		} else if text, ok := item["text"].(string); ok {
+			parts = append(parts, text)
+		}
+		parts = append(parts, stringSlice(item["code_caption"])...)
+	default:
+		if text, ok := item["text"].(string); ok {
+			parts = append(parts, text)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+func mineruItemPositions(item map[string]any) [][]any {
+	if raw, ok := item["_mineru_positions"].([]any); ok {
+		var out [][]any
+		for _, entry := range raw {
+			posMap, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			if pos := mineruBBoxPosition(posMap["page_idx"], posMap["bbox"]); pos != nil {
+				out = append(out, pos)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	if pos := mineruBBoxPosition(item["page_idx"], item["bbox"]); pos != nil {
+		return [][]any{pos}
+	}
+	return nil
+}
+
+func mineruBBoxPosition(pageRaw, bboxRaw any) []any {
+	pageIdx, ok := mineruJSONInt(pageRaw)
+	if !ok {
+		return nil
+	}
+	bbox := mineruJSONFloatSlice(bboxRaw)
+	if len(bbox) < 4 {
+		return nil
+	}
+	// MinerU page_idx is 0-based; bbox is [x0, top, x1, bottom].
+	// Downstream position_int is 1-based [page, left, right, top, bottom].
+	return []any{pageIdx + 1, bbox[0], bbox[2], bbox[1], bbox[3]}
+}
+
+func mineruJSONInt(raw any) (int, bool) {
+	switch v := raw.(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case json.Number:
+		n, err := v.Int64()
+		return int(n), err == nil
+	default:
+		return 0, false
+	}
+}
+
+func mineruJSONFloatSlice(raw any) []float64 {
+	switch v := raw.(type) {
+	case []any:
+		out := make([]float64, 0, len(v))
+		for _, item := range v {
+			switch n := item.(type) {
+			case float64:
+				out = append(out, n)
+			case int:
+				out = append(out, float64(n))
+			case int64:
+				out = append(out, float64(n))
+			case json.Number:
+				f, err := n.Float64()
+				if err != nil {
+					return nil
+				}
+				out = append(out, f)
+			default:
+				return nil
+			}
+		}
+		return out
+	case []float64:
+		return v
+	case []int:
+		out := make([]float64, len(v))
+		for i, n := range v {
+			out[i] = float64(n)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func mineruZipImageDataURI(images map[string]*zip.File, imgPath string) string {
+	imgPath = strings.TrimSpace(strings.ReplaceAll(imgPath, "\\", "/"))
+	if imgPath == "" {
+		return ""
+	}
+	candidates := []string{imgPath, path.Base(imgPath), strings.TrimPrefix(path.Clean(imgPath), "./")}
+	var file *zip.File
+	for _, key := range candidates {
+		if f, ok := images[key]; ok {
+			file = f
+			break
+		}
+	}
+	if file == nil || file.UncompressedSize64 > mineruMaxImageBytes {
+		return ""
+	}
+	rc, err := file.Open()
+	if err != nil {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(rc, mineruMaxImageBytes+1))
+	rc.Close()
+	if err != nil || len(data) == 0 || len(data) > mineruMaxImageBytes {
+		return ""
+	}
+	mediaType := mime.TypeByExtension(path.Ext(file.Name))
+	if mediaType == "" {
+		mediaType = http.DetectContentType(data)
+	}
+	return fmt.Sprintf("data:%s;base64,%s", mediaType, base64.StdEncoding.EncodeToString(data))
+}
+
+func mineruJSONParseResult(filename string, items []map[string]any) parser.ParseResult {
+	return parser.ParseResult{
+		OutputFormat: "json",
+		File: map[string]any{
+			"name":         filename,
+			"page_count":   mineruItemPageCount(items),
+			"outline":      []map[string]any{},
+			"parse_method": "mineru",
+		},
+		JSON: parser.MapsToItems(items),
+	}
+}
+
+func mineruItemPageCount(items []map[string]any) int {
+	maxPage := 0
+	for _, item := range items {
+		if page, ok := mineruJSONInt(item["page_number"]); ok && page > maxPage {
+			maxPage = page
+		}
+	}
+	return maxPage
+}
+
+func stringSlice(raw any) []string {
+	switch v := raw.(type) {
+	case []any:
+		var out []string
+		for _, s := range v {
+			if str, ok := s.(string); ok {
+				out = append(out, str)
+			}
+		}
+		return out
+	case []string:
+		return v
+	}
+	return nil
+}
+
+func resolvePDFVisionModelID(setup schema.ParserSetup) (string, bool) {
+	if setup == nil {
+		return "", false
+	}
+	if raw, ok := setup["parse_method"].(string); ok {
+		method := strings.TrimSpace(raw)
+		if method != "" && !parser.IsPDFParseMethod(method) {
+			return method, true
+		}
+	}
+	if raw, ok := setup["layout_recognizer"].(string); ok {
+		method := strings.TrimSpace(raw)
+		if method != "" && !parser.IsPDFParseMethod(method) {
+			return method, true
+		}
+	}
+	return "", false
+}
+
+func dispatchPDFVision(
+	ctx context.Context,
+	db *gorm.DB,
+	filename string,
+	binary []byte,
+	tenantID string,
+	modelID string,
+	pages [][]int,
+) (parser.ParseResult, error) {
+	renderedPages, err := pdfVisionPageRenderer(binary, pages)
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: pdf vision render: %w", err)
+	}
+	driver, resolvedModelName, apiConfig, err := pdfVisionModelResolver(ctx, db, tenantID, modelID)
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: pdf vision model %q: %w", modelID, err)
+	}
+	promptTemplate, err := pdfVisionPromptLoader("vision_llm_describe_prompt")
+	if err != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: load vision prompt: %w", err)
+	}
+
+	items := make([]map[string]any, 0, len(renderedPages))
+	for _, page := range renderedPages {
+		prompt := renderPDFVisionPrompt(promptTemplate, page.PageNumber)
+		resp, err := pdfVisionChatInvoker(ctx, driver, resolvedModelName, buildPDFVisionMessages(prompt, page.ImageURL), apiConfig)
+		if err != nil {
+			return parser.ParseResult{}, fmt.Errorf("parser: pdf vision page %d: %w", page.PageNumber, err)
+		}
+		text := extractVisionAnswer(resp)
+		positions := [][]any{{page.PageNumber, 0.0, page.WidthPts, 0.0, page.HeightPts}}
+		items = append(items, map[string]any{
+			"text":           text,
+			"doc_type_kwd":   "text",
+			"page_number":    page.PageNumber,
+			"_pdf_positions": positions,
+			"positions":      positions,
+		})
+	}
+
+	fileMeta := map[string]any{
+		"name":         filename,
+		"page_count":   len(renderedPages),
+		"outline":      []map[string]any{},
+		"parse_method": modelID,
+	}
+	return parser.ParseResult{
+		OutputFormat: "json",
+		File:         fileMeta,
+		JSON:         parser.MapsToItems(items),
+	}, nil
+}
+
+func buildPDFVisionMessages(prompt string, imageURL string) []modelModule.Message {
+	return []modelModule.Message{{
+		Role: "user",
+		Content: []interface{}{
+			map[string]any{"type": "text", "text": prompt},
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": imageURL}},
+		},
+	}}
+}
+
+func defaultPDFVisionModelResolver(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID string,
+	modelID string,
+) (modelModule.ModelDriver, string, *modelModule.APIConfig, error) {
+	if strings.TrimSpace(modelID) == "" {
+		driver, modelName, apiConfig, _, err := resolveTenantModelByType(ctx, db, tenantID, entity.ModelTypeImage2Text)
+		return driver, modelName, apiConfig, err
+	}
+	driver, modelName, apiConfig, _, err := resolveModelConfig(ctx, db, tenantID, entity.ModelTypeImage2Text, modelID)
+	return driver, modelName, apiConfig, err
+}
+
+func defaultPDFVisionChatInvoker(
+	ctx context.Context,
+	driver modelModule.ModelDriver,
+	modelName string,
+	messages []modelModule.Message,
+	apiConfig *modelModule.APIConfig,
+) (*modelModule.ChatResponse, error) {
+	vision := true
+	chatModel := modelModule.NewChatModel(driver, &modelName, apiConfig)
+	return chatModel.ChatWithMessages(ctx, messages, &modelModule.ChatConfig{Vision: &vision}, nil)
+}
+
+// renderPDFVisionPrompt only renders page metadata. The full-page PDF vision
+// prompt is a transcription contract that preserves the document's original
+// language; dataset-language instructions apply to figure descriptions in
+// maybeDispatchVisionEnhancement instead.
+func renderPDFVisionPrompt(template string, page int) string {
+	rendered := strings.ReplaceAll(template, "{{ page }}", fmt.Sprintf("%d", page))
+	rendered = strings.ReplaceAll(rendered, "{{page}}", fmt.Sprintf("%d", page))
+	return rendered
+}
+
+// isMinerUDriver reports whether the model driver is a MinerU variant
+// (remote mineru.net or local mineru).
+func isMinerUDriver(driver modelModule.ModelDriver) bool {
+	switch strings.ToLower(driver.Name()) {
+	case "mineru", "mineru.net":
+		return true
+	}
+	return false
+}
+
+// isMinerULayoutModelID reports whether selector — a bare tenant model UUID
+// with no "model@instance@provider" composite hint — resolves to an active
+// OCR model driven by a MinerU provider (remote mineru.net or local mineru).
+// The raw UUID carries no provider spelling, so it must be resolved before
+// the dispatch path is chosen instead of falling through to the image2text
+// VLM path.
+var isMinerULayoutModelID = defaultIsMinerULayoutModelID
+
+func defaultIsMinerULayoutModelID(ctx context.Context, db *gorm.DB, tenantID, selector string) bool {
+	selector = strings.TrimSpace(selector)
+	if db == nil {
+		return false
+	}
+	if selector == "" || strings.Contains(selector, "@") {
+		return false
+	}
+	driver, _, _, err := defaultResolveMinerUModelForDispatch(ctx, db, tenantID, selector)
+	if err != nil {
+		return false
+	}
+	return isMinerUDriver(driver)
+}
+
+// isPaddleOCRDriver reports whether the model driver is a PaddleOCR variant
+// (cloud "paddleocr" or local "paddleocr.local").
+func isPaddleOCRDriver(driver modelModule.ModelDriver) bool {
+	switch strings.ToLower(driver.Name()) {
+	case "paddleocr", "paddleocr.local":
+		return true
+	}
+	return false
+}
+
+// isPaddleOCRLayoutModelID reports whether layout — a bare tenant model UUID
+// with no "model@instance@provider" composite hint — resolves to an active
+// OCR model driven by a PaddleOCR provider (cloud "PaddleOCR" or local
+// "PaddleOCR.local"). The web UI stores the tenant model UUID directly in
+// layout_recognizer, so the raw value carries no provider spelling; this
+// mirrors Python's get_composite_model_name_by_id resolution of the same
+// UUID before the PaddleOCR path is chosen.
+var isPaddleOCRLayoutModelID = defaultIsPaddleOCRLayoutModelID
+
+func defaultIsPaddleOCRLayoutModelID(ctx context.Context, db *gorm.DB, tenantID, layout string) bool {
+	layout = strings.TrimSpace(layout)
+	if db == nil {
+		return false
+	}
+	if layout == "" || strings.Contains(layout, "@") {
+		return false
+	}
+	driver, _, _, err := defaultResolvePaddleOCRModelForDispatch(ctx, db, tenantID, layout)
+	if err != nil {
+		return false
+	}
+	return isPaddleOCRDriver(driver)
+}
