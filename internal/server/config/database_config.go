@@ -18,14 +18,18 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"ragflow/internal/common"
+	"strconv"
 
 	"github.com/spf13/viper"
 )
 
 // DatabaseConfig database configuration
 type DatabaseConfig struct {
-	MySQL MySQLConfig `mapstructure:"mysql"`
+	MySQL    MySQLConfig    `mapstructure:"mysql"`
+	Postgres PostgresConfig `mapstructure:"postgres"`
 }
 
 type MySQLConfig struct {
@@ -45,15 +49,13 @@ func (c *Config) ParseDatabaseConfig(v *viper.Viper) error {
 	if envType := common.GetEnvSmall(common.EnvDBType); envType != "" {
 		databaseType = envType
 	}
-	switch databaseType {
-	case "mysql":
-		c.parseMySQLConfig(v)
-	case "oceanbase":
-		c.parseOceanBaseDatabaseConfig(v)
-	default:
-		return fmt.Errorf("database type %s is not supported", databaseType)
+	if databaseType == "" {
+		databaseType = "postgres"
 	}
-	return nil
+	if databaseType != "postgres" {
+		return fmt.Errorf("metadata runtime requires PostgreSQL; use pg_migrate for offline MySQL import")
+	}
+	return c.parsePostgresConfig(v)
 }
 
 func (c *Config) parseOceanBaseDatabaseConfig(v *viper.Viper) {
@@ -169,4 +171,61 @@ func (m *MySQLConfig) ExportConfigs() map[string]interface{} {
 	mysqlConfigs["stale_timeout"] = m.StaleTimeout
 	mysqlConfigs["max_allowed_packet"] = m.MaxAllowedPacket
 	return mysqlConfigs
+}
+
+// PostgresConfig configures the native PostgreSQL metadata backend.
+type PostgresConfig struct {
+	DatabaseName   string `mapstructure:"name"`
+	User           string `mapstructure:"user"`
+	Password       string `mapstructure:"password"`
+	Host           string `mapstructure:"host"`
+	Port           int    `mapstructure:"port"`
+	SSLMode        string `mapstructure:"sslmode"`
+	MaxConnections int    `mapstructure:"max_connections"`
+	StaleTimeout   int    `mapstructure:"stale_timeout"`
+}
+
+func (c *Config) parsePostgresConfig(v *viper.Viper) error {
+	p := PostgresConfig{DatabaseName: "ragflow", User: "ragflow", Host: "postgres", Port: 5432, SSLMode: "verify-full", MaxConnections: 10, StaleTimeout: 300}
+	if err := v.UnmarshalKey("postgres", &p); err != nil {
+		return fmt.Errorf("parse PostgreSQL configuration: %w", err)
+	}
+	for name, target := range map[string]*string{"NAME": &p.DatabaseName, "USER": &p.User, "PASSWORD": &p.Password, "HOST": &p.Host, "SSLMODE": &p.SSLMode} {
+		if value := common.GetEnv("RAGFLOW_POSTGRES_" + name); value != "" {
+			*target = value
+		}
+	}
+	if value := common.GetEnv("RAGFLOW_POSTGRES_PORT"); value != "" {
+		port, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid PostgreSQL port")
+		}
+		p.Port = port
+	}
+	if p.Host == "" || p.DatabaseName == "" || p.User == "" || p.Password == "" {
+		return fmt.Errorf("PostgreSQL host, name, user and password are required")
+	}
+	if p.Port < 1 || p.Port > 65535 || p.MaxConnections < 1 || p.StaleTimeout < 1 {
+		return fmt.Errorf("invalid PostgreSQL pool or port configuration")
+	}
+	switch p.SSLMode {
+	case "disable", "require", "verify-ca", "verify-full":
+	default:
+		return fmt.Errorf("invalid PostgreSQL sslmode")
+	}
+	c.database.Postgres = p
+	return nil
+}
+func (c *Config) GetPostgresConfig() PostgresConfig { return c.database.Postgres }
+func (p PostgresConfig) DSN() string {
+	u := url.URL{Scheme: "postgres", User: url.UserPassword(p.User, p.Password), Host: net.JoinHostPort(p.Host, strconv.Itoa(p.Port)), Path: "/" + p.DatabaseName}
+	q := u.Query()
+	q.Set("sslmode", p.SSLMode)
+	q.Set("timezone", "UTC")
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func (p PostgresConfig) ExportConfigs() map[string]interface{} {
+	return map[string]interface{}{"host": p.Host, "port": p.Port, "database_name": p.DatabaseName, "username": p.User, "password": p.Password, "sslmode": p.SSLMode, "max_connections": p.MaxConnections, "stale_timeout": p.StaleTimeout}
 }

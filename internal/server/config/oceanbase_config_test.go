@@ -52,9 +52,6 @@ func TestParseExistingOceanBaseAndSeekDBConfig(t *testing.T) {
 	if err := config.ParseGeneralConfig(v); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.ParseDatabaseConfig(v); err != nil {
-		t.Fatal(err)
-	}
 	if err := config.ParseDocEngineConfig(v); err != nil {
 		t.Fatal(err)
 	}
@@ -91,9 +88,6 @@ func TestOceanBaseDefaultCredentialMatchesMySQLWireConfig(t *testing.T) {
 	if err := config.ParseGeneralConfig(v); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.ParseDatabaseConfig(v); err != nil {
-		t.Fatal(err)
-	}
 	if err := config.ParseDocEngineConfig(v); err != nil {
 		t.Fatal(err)
 	}
@@ -107,41 +101,13 @@ func TestOceanBaseDefaultCredentialMatchesMySQLWireConfig(t *testing.T) {
 	}
 }
 
-func TestOceanBaseEnvironmentTypesAreAccepted(t *testing.T) {
-	t.Setenv("DOC_ENGINE", "seekdb")
+func TestOceanBaseMetadataRuntimeIsRejected(t *testing.T) {
 	t.Setenv("DB_TYPE", "oceanbase")
 	config := &Config{}
-	if err := config.GetEnvironments(); err != nil {
-		t.Fatal(err)
+	if err := config.GetEnvironments(); err == nil {
+		t.Fatal("accepted OceanBase metadata runtime")
 	}
-	if got := config.DocEngineType(); got != "seekdb" {
-		t.Fatalf("doc engine = %q, want seekdb", got)
-	}
-	if got := config.DatabaseType(); got != "oceanbase" {
-		t.Fatalf("database type = %q, want oceanbase", got)
-	}
-}
-
-func TestParseOceanBaseAsMainDatabaseFromNestedConfig(t *testing.T) {
-	t.Setenv("DB_TYPE", "oceanbase")
-	oceanBaseCredential := t.Name() + "-oceanbase"
-	v := viper.New()
-	v.Set("oceanbase", map[string]interface{}{
-		"scheme": "oceanbase",
-		"config": map[string]interface{}{
-			"db_name": "rag_flow_ob", "user": "root@tenant", "password": oceanBaseCredential,
-			"host": "ob-main", "port": 2881, "max_connections": 300,
-		},
-	})
-	config := &Config{}
-	if err := config.ParseGeneralConfig(v); err != nil {
-		t.Fatal(err)
-	}
-	if err := config.ParseDatabaseConfig(v); err != nil {
-		t.Fatal(err)
-	}
-	got := config.GetMySQLConfig()
-	if got.DatabaseName != "rag_flow_ob" || got.User != "root@tenant" || got.Host != "ob-main" || got.Port != 2881 {
-		t.Fatalf("main OceanBase config was not mapped to MySQL wire config: %#v", got)
+	if err := config.ParseDatabaseConfig(viper.New()); err == nil {
+		t.Fatal("accepted OceanBase metadata configuration")
 	}
 }

@@ -715,12 +715,10 @@ func (s *Service) ListServices(ctx context.Context) ([]ServiceStatus, error) {
 	// Database
 	databaseType := globalConfig.DatabaseType()
 	switch databaseType {
-	case "mysql":
-		mysqlStatus := s.getMySQLStatus(ctx)
-		results = append(results, mysqlStatus)
+	case "postgres":
+		results = append(results, s.getPostgresStatus(ctx))
 	default:
-		mysqlConfig := globalConfig.GetMySQLConfig()
-		results = append(results, newServiceStatus("database", databaseType, mysqlConfig.Host, mysqlConfig.Port, "not available", time.Now(), "not supported database type"))
+		results = append(results, newServiceStatus("database", databaseType, "", 0, "not available", time.Now(), "PostgreSQL metadata required"))
 	}
 
 	// Doc engine
@@ -835,30 +833,6 @@ func (s *Service) GetServiceDetails(configDict map[string]interface{}) ([]Servic
 	//	return nil, nil
 	//}
 	return nil, nil
-}
-
-// getMySQLStatus gets MySQL service status
-func (s *Service) getMySQLStatus(ctx context.Context) ServiceStatus {
-
-	serviceType := "database"
-	name := "mysql"
-	startTime := time.Now()
-
-	sqlDB, err := dao.DB.DB()
-	if err != nil {
-		mysqlConfig := server.GetConfig().GetMySQLConfig()
-		return newServiceStatus(serviceType, name, mysqlConfig.Host, mysqlConfig.Port, "not connected", startTime, err.Error())
-	}
-
-	// Execute SELECT 1 to check connectivity
-	err = sqlDB.PingContext(ctx)
-	if err != nil {
-		mysqlConfig := server.GetConfig().GetMySQLConfig()
-		return newServiceStatus(serviceType, name, mysqlConfig.Host, mysqlConfig.Port, "timeout", startTime, err.Error())
-	}
-
-	mysqlConfig := server.GetConfig().GetMySQLConfig()
-	return newServiceStatus(serviceType, name, mysqlConfig.Host, mysqlConfig.Port, "alive", startTime, "")
 }
 
 // getKvrocksStatus gets the Kvrocks service status.
@@ -1336,6 +1310,18 @@ func (s *Service) InitDefaultAdmin() error {
 	defaultNickname := "admin"
 	defaultEmail := "admin@ragflow.io"
 	defaultPassword := "admin"
+	if v := common.GetEnv(common.EnvDefaultSuperuserEmail); v != "" {
+		defaultEmail = v
+	}
+	if v := common.GetEnv(common.EnvDefaultSuperuserNickname); v != "" {
+		defaultNickname = v
+	}
+	if v := common.GetEnv(common.EnvDefaultSuperuserPassword); v != "" {
+		defaultPassword = v
+	}
+	if server.GetConfig().DatabaseType() == "postgres" && common.GetEnv(common.EnvDefaultSuperuserPassword) == "" {
+		return fmt.Errorf("DEFAULT_SUPERUSER_PASSWORD is required for PostgreSQL bootstrap")
+	}
 
 	// Query superusers
 	var users []*entity.User
@@ -1453,4 +1439,18 @@ func (s *Service) ListAllModels(pageIndex, pageSize int) ([]map[string]interface
 
 func (s *Service) GetModelByModelName(modelName string) (*modelModule.Model, error) {
 	return dao.GetModelProviderManager().GetModelByNameOrAlias(modelName), nil
+}
+
+func (s *Service) getPostgresStatus(ctx context.Context) ServiceStatus {
+	p := server.GetConfig().GetPostgresConfig()
+	start := time.Now()
+	pool, err := dao.DB.DB()
+	if err == nil {
+		err = pool.PingContext(ctx)
+	}
+	status, message := "alive", ""
+	if err != nil {
+		status, message = "not connected", "PostgreSQL connection unavailable"
+	}
+	return newServiceStatus("database", "postgres", p.Host, p.Port, status, start, message)
 }

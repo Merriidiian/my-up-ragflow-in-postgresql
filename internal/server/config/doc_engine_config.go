@@ -101,6 +101,10 @@ type VastbaseConfig struct {
 // ParseDocEngineConfig reads every document-engine section from the
 // service configuration into the doc engine settings.
 func (c *Config) ParseDocEngineConfig(v *viper.Viper) error {
+	// Preserve wire settings for upstream document-engine adapters independently
+	// of PostgreSQL metadata. This parses configuration only; it opens no MySQL
+	// metadata connection and does not enable these adapters in the local profile.
+	c.parseMySQLConfig(v)
 	c.parseInfinityConfig(v)
 	c.parseElasticsearchConfig(v)
 	c.parseOceanBaseConfig(v, "oceanbase", &c.docEngine.OceanBase)

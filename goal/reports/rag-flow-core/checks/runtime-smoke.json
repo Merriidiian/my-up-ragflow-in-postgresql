@@ -1,0 +1,16 @@
+{
+  "kind": "isolated runtime image smoke; not full API/RAG integration",
+  "binary_sha256": "3978eec2c39da44cb61a643024544f374a0c14296908b4d5e312099ed7de7d64",
+  "image_id": "sha256:adc6da0324f7bc2e70fc4f9f8183de15b769646edc5a057d925c21d2d964166f",
+  "version": {
+    "exit_code": 1,
+    "output": "RAGFlow version: v1.0.0-rc2",
+    "matches_pinned": true,
+    "note": "upstream help/version exit status is 1"
+  },
+  "native_resources_registered": true,
+  "expected_database_rejection": true,
+  "startup_exit_code": 1,
+  "no_live_services_used": true,
+  "passed": true
+}

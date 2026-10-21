@@ -544,6 +544,9 @@ func main() {
 	}
 }
 
+// This is an additional application-release downgrade guard. PostgreSQL schema
+// approval/migration is performed by InitDB using vsm_pg_schema and the embedded
+// catalogue, never by the historical mysql_migration.database.version value.
 func checkDatabaseVersion(ctx context.Context) error {
 	if common.DevModeEnabled() {
 		common.Warn("Development mode is enabled, skipping the database downgrade check",

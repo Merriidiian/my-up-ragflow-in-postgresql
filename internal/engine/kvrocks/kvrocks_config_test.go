@@ -57,7 +57,8 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-// TestKvrocksDeploymentConfig guards the deployment artifact that no test can
+// TestKvrocksDeploymentConfig guards the preserved upstream fixture, not the
+// infrastructure component deployment. The original regression that no test can
 // reach on its own: the compose healthcheck must authenticate now that
 // requirepass is enforced. (The kvrocks-parity CI workflow used to be guarded
 // here too; it was removed along with the integration tests it ran.)
@@ -65,7 +66,7 @@ func TestKvrocksDeploymentConfig(t *testing.T) {
 	root := repoRoot(t)
 
 	t.Run("ComposeHealthcheckAuthenticates", func(t *testing.T) {
-		compose := readFile(t, filepath.Join(root, "docker/docker-compose-base.yml"))
+		compose := readFile(t, filepath.Join(root, "internal/engine/kvrocks/testdata/upstream-compose-base.yml"))
 		// requirepass is enforced, so the healthcheck must authenticate. The
 		// Kvrocks image ships redis-cli (but not nc), so the probe is
 		// `redis-cli -a ${REDIS_PASSWORD} ping`. A bare PING would be rejected

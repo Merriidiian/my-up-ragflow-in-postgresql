@@ -94,7 +94,7 @@ func (dao *UserDAO) GetNicknamesByIDs(ctx context.Context, db *gorm.DB, ids []st
 // GetByEmail get user by email
 func (dao *UserDAO) GetByEmail(ctx context.Context, db *gorm.DB, email string) (*entity.User, error) {
 	var user entity.User
-	query := db.WithContext(ctx).Where("email = ?", email)
+	query := db.WithContext(ctx).Where("LOWER(email) = LOWER(?)", email)
 	err := query.First(&user).Error
 	if err != nil {
 		return nil, err
@@ -157,6 +157,6 @@ func (dao *UserDAO) HardDelete(ctx context.Context, db *gorm.DB, id string) erro
 // Returns all users matching the given email address
 func (dao *UserDAO) ListByEmail(ctx context.Context, db *gorm.DB, email string) ([]*entity.User, error) {
 	var users []*entity.User
-	err := db.WithContext(ctx).Where("email = ?", email).Find(&users).Error
+	err := db.WithContext(ctx).Where("LOWER(email) = LOWER(?)", email).Find(&users).Error
 	return users, err
 }

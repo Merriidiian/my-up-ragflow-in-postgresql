@@ -1,0 +1,461 @@
+{
+  "scope": "new core, fresh disposable PostgreSQL18.6/MySQL8.4.6, Linux ARM64 CGO/static; includes subtests, not route coverage",
+  "command": "go test -tags cgo,static -json -count=1 -timeout 180s ./...",
+  "started_utc": "2026-10-21T11:09:11.247893045Z",
+  "finished_utc": "2026-10-21T11:12:03.083531097Z",
+  "counts": {
+    "pass_test": 15405,
+    "pass_package": 129,
+    "skip_package": 25,
+    "skip_test": 64
+  },
+  "failures": [],
+  "skips": [
+    {
+      "package": "ragflow/cmd/pg_migrate",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/agent/component/io",
+      "test": "TestWritePDF_UsesGoLibrary",
+      "reason": "pdf_writer_test.go:32: no local Latin PDF font available"
+    },
+    {
+      "package": "ragflow/internal/agent/component/io",
+      "test": "TestWritePDF_RendersVisibleText",
+      "reason": "pdf_writer_test.go:43: no local Latin PDF font available"
+    },
+    {
+      "package": "ragflow/internal/agent/component/io",
+      "test": "TestWritePDF_WrapsAndPaginatesWithinMargins",
+      "reason": "pdf_writer_test.go:104: no local Latin PDF font available"
+    },
+    {
+      "package": "ragflow/internal/agent/component/io",
+      "test": "TestWritePDF_LargeFontStartsInsidePage",
+      "reason": "pdf_writer_test.go:183: no local Latin PDF font available"
+    },
+    {
+      "package": "ragflow/internal/agent/component/io",
+      "test": "TestWritePDF_LongDecorationsFitPage",
+      "reason": "pdf_writer_test.go:240: no local Latin PDF font available"
+    },
+    {
+      "package": "ragflow/internal/agent/component/io",
+      "test": "TestWritePDF_RejectsFontTooLargeForBody",
+      "reason": "pdf_writer_test.go:284: no local Latin PDF font available"
+    },
+    {
+      "package": "ragflow/internal/agent/component/io",
+      "test": "TestWritePDF_RendersMarkdownHeadings",
+      "reason": "pdf_writer_test.go:292: no local Latin PDF font available"
+    },
+    {
+      "package": "ragflow/internal/agent/component/io",
+      "test": "TestWritePDF_WatermarkOnEveryPage",
+      "reason": "pdf_writer_watermark_test.go:15: no local Latin PDF font available"
+    },
+    {
+      "package": "ragflow/internal/agent/component/prompts",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/agent/tool",
+      "test": "TestHTTPHelper_DefaultTransportHasStageTimeouts",
+      "reason": "http_timeout_guard_test.go:56: transport is *otelhttp.Transport, not asserting stage timeouts"
+    },
+    {
+      "package": "ragflow/internal/binding",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/channels/core",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/cli/filesystem/skill_hub/security",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/cli/filesystem/skill_hub/source",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/cli/utils",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/dao",
+      "test": "TestExportPostgresContract",
+      "reason": "postgres_contract_test.go:55: explicit contract generation only"
+    },
+    {
+      "package": "ragflow/internal/deepdoc/parser/pdf/layout",
+      "test": "TestAssignColumnCombined_Labeled",
+      "reason": "combined_column_test.go:131: charspy corpus not found at ../testdata/charspy (run from package dir): stat ../testdata/charspy: no such file or directory"
+    },
+    {
+      "package": "ragflow/internal/deepdoc/parser/pdf/pdfium",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/deepdoc/parser/pdf/pdfsync",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/deepdoc/parser/type",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/engine",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/engine/clickhouse",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/entity/models",
+      "test": "TestGiteeListModelsIntegration",
+      "reason": "gitee_test.go:231: set GITEE_LIST_MODELS_INTEGRATION=1 to call the real Gitee models endpoint"
+    },
+    {
+      "package": "ragflow/internal/harness/core/backend",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/harness/core/internal",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/harness/core",
+      "test": "TestGraphIntegration_ReActWithCheckpointResume",
+      "reason": "graph_integration_test.go:206: requires Pregel engine — run from harness root: go test ./..."
+    },
+    {
+      "package": "ragflow/internal/harness/core/schema",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/harness/graph/constants",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/harness/core",
+      "test": "TestReActGraph_FullCheckpointInterruptResume",
+      "reason": "react_graph_test.go:110: requires Pregel engine — run from harness root: go test ./..."
+    },
+    {
+      "package": "ragflow/internal/harness/core",
+      "test": "TestReActGraph_SerialCheckpointCycles",
+      "reason": "react_graph_test.go:179: requires Pregel engine — run from harness root: go test ./..."
+    },
+    {
+      "package": "ragflow/internal/harness/core",
+      "test": "TestReActGraph_ConcurrentCheckpoints",
+      "reason": "react_graph_test.go:290: requires Pregel engine — run from harness root: go test ./..."
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestCheckpoint_InterruptAndResume",
+      "reason": "checkpoint_recovery_test.go:23: requires full Pregel engine for interrupt/resume"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestFault_ConditionalEdge_MissingKey",
+      "reason": "graph_advanced_fault_edge_test.go:158: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGraphChannel_BinaryOperator_Overwrite",
+      "reason": "graph_channel_test.go:101: inline Pregel path does not support Overwrite wrapper; use pregel.Engine instead"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGraphChannel_BinaryOperator_MultipleSteps",
+      "reason": "graph_channel_test.go:163: inline Pregel path recursion limit issue with conditional loops; use pregel.Engine instead"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGraphChannel_OverwriteConflict",
+      "reason": "graph_channel_test.go:493: inline Pregel path does not support parallel fan-in; OverwriteConflict requires AllPredecessor mode"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGraph_ConcurrentInvoke_LoopGraph",
+      "reason": "graph_concurrency_test.go:129: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestEnterprise_ConditionalEdge_MultiWay",
+      "reason": "graph_enterprise_integration_test.go:269: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/core",
+      "test": "TestWorkflowComplex_CancelAtPositions/cancel_early",
+      "reason": "workflow_complex_test.go:389: Known bug: sequential workflow cancel via WithCancel never works. wrapIterWithCancelCtx.markDone() transitions shared cancelContext state to stDone after first sub-agent completes, preventing later cancel.See TestIntegration_SequentialCancelResume for same behavior."
+    },
+    {
+      "package": "ragflow/internal/harness/core",
+      "test": "TestWorkflowComplex_CancelAtPositions/cancel_mid",
+      "reason": "workflow_complex_test.go:389: Known bug: sequential workflow cancel via WithCancel never works. wrapIterWithCancelCtx.markDone() transitions shared cancelContext state to stDone after first sub-agent completes, preventing later cancel.See TestIntegration_SequentialCancelResume for same behavior."
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestEnterprise_DAGWithConditionalEdge",
+      "reason": "graph_enterprise_integration_test.go:542: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestEnterprise_RecursionLimit_Handled",
+      "reason": "graph_enterprise_integration_test.go:656: Skipped: requires Pregel engine for conditional edge to __end__"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGraphIntegration_ConditionalEdge",
+      "reason": "graph_integration_test.go:50: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGraphIntegration_DAGMode",
+      "reason": "graph_integration_test.go:132: DAG mode compile: graph validation failed: node node_a is not reachable from entry point (expected during validation)"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGraphIntegration_CheckpointInterruptResume",
+      "reason": "graph_integration_test.go:182: requires Pregel engine with checkpoint support — run from harness root: go test ./..."
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGraphIntegration_BranchFanOut",
+      "reason": "graph_integration_test.go:426: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestSubgraphPersistence_InterruptResume_Checkpointer",
+      "reason": "graph_persistence_evolution_test.go:328: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestSubgraphState_GetState_AfterExecution",
+      "reason": "graph_subgraph_state_test.go:82: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestSubgraphState_GetStateHistory",
+      "reason": "graph_subgraph_state_test.go:155: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestSubgraphState_UpdateState_ParentLevel",
+      "reason": "graph_subgraph_state_test.go:200: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestTimeTravel_Fork_ThenModify",
+      "reason": "graph_time_travel_test.go:57: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestTimeTravel_Replay_AfterInject",
+      "reason": "graph_time_travel_test.go:152: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestTimeTravel_UpdateThenResume",
+      "reason": "graph_time_travel_test.go:192: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestTimeTravel_MultiStep_InjectionChain",
+      "reason": "graph_time_travel_test.go:225: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestTimeTravel_SchemaEvolution",
+      "reason": "graph_time_travel_test.go:407: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestTimeTravel_MultiStepInject",
+      "reason": "graph_timetravel_send_test.go:24: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestTimeTravel_ForkFromCheckpoint",
+      "reason": "graph_timetravel_send_test.go:81: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestConditionalEdge_Fallback",
+      "reason": "graph_timetravel_send_test.go:212: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/harness/graph/graph",
+      "test": "TestGetState_WithCheckpointer",
+      "reason": "state_inspector_test.go:33: requires Pregel engine - see pregel/ for equivalent tests"
+    },
+    {
+      "package": "ragflow/internal/ingestion/task",
+      "test": "TestPipelineExecutor_Run_RealCanvasDSL_UsesGeneralPipeline",
+      "reason": "pipeline_real_integration_test.go:37: tokenizer pool init failed: failed to load base analyzer: failed to load analyzer, error code: -1"
+    },
+    {
+      "package": "ragflow/internal/ingestion/task",
+      "test": "TestPipelineExecutor_Run_RealPDF_ProducesIndexedChunks",
+      "reason": "pipeline_real_integration_test.go:143: tokenizer pool init failed: failed to load base analyzer: failed to load analyzer, error code: -1"
+    },
+    {
+      "package": "ragflow/internal/ingestion/task",
+      "test": "TestRunPipeline_RealPipelineOutput_ProducesIndexFields",
+      "reason": "pipeline_real_integration_test.go:282: tokenizer pool init failed: failed to load base analyzer: failed to load analyzer, error code: -1"
+    },
+    {
+      "package": "ragflow/internal/ingestion/testutil",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/ingestion/wire",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/router",
+      "test": "TestExportPostgresFunctionInventory",
+      "reason": "postgres_coverage_test.go:16: explicit inventory export only"
+    },
+    {
+      "package": "ragflow/internal/server/admin",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/server/api",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/server/local",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/server/syncer",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/service/dataset",
+      "test": "TestCreateDataset_ParseTypePipelineIgnoresParserID",
+      "reason": "create_test.go:274: requires canvas seed data in test DB"
+    },
+    {
+      "package": "ragflow/internal/service/nlp",
+      "test": "TestNewSynonym",
+      "reason": "synonym_test.go:73: WordNet data not present at /work/resource/wordnet"
+    },
+    {
+      "package": "ragflow/internal/service/nlp",
+      "test": "TestNewWordNet",
+      "reason": "wordnet_test.go:31: WordNet data not present at /work/resource/wordnet"
+    },
+    {
+      "package": "ragflow/internal/service/nlp",
+      "test": "TestMorphy",
+      "reason": "wordnet_test.go:50: WordNet data not present at /work/resource/wordnet"
+    },
+    {
+      "package": "ragflow/internal/service/nlp",
+      "test": "TestSynsets",
+      "reason": "wordnet_test.go:77: WordNet data not present at /work/resource/wordnet"
+    },
+    {
+      "package": "ragflow/internal/service/nlp",
+      "test": "TestSynsetsDetailed",
+      "reason": "wordnet_test.go:141: WordNet data not present at /work/resource/wordnet"
+    },
+    {
+      "package": "ragflow/internal/service/nlp",
+      "test": "TestSynsetsConsistencyWithPython",
+      "reason": "wordnet_test.go:172: WordNet data not present at /work/resource/wordnet"
+    },
+    {
+      "package": "ragflow/internal/service/nlp",
+      "test": "TestSynsetContent",
+      "reason": "wordnet_test.go:211: WordNet data not present at /work/resource/wordnet"
+    },
+    {
+      "package": "ragflow/internal/syncer/connector/mock",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/internal/tokenizer",
+      "test": "TestModelAssetsDirIsHonoured",
+      "reason": "asset_dir_test.go:47: the SPM asset is not present here (stat ../../ragflow_deps/huggingface.co/BAAI/bge-m3/sentencepiece.bpe.model: no such file or directory); run ragflow_deps/download_deps.py"
+    },
+    {
+      "package": "ragflow/internal/tokenizer",
+      "test": "TestModelAssetsDirIsHonouredChild",
+      "reason": "asset_dir_test.go:77: parent process"
+    },
+    {
+      "package": "ragflow/internal/tokenizer",
+      "test": "TestCountersMatchOracle",
+      "reason": "counter_oracle_test.go:84: set TOKENIZER_ORACLE_DIR to a directory of fixtures from scripts/gen_tokenizer_oracle.py"
+    },
+    {
+      "package": "ragflow/internal/tokenizer",
+      "test": "TestAcquireUnblocksOnCloseCompletion",
+      "reason": "tokenizer_close_race_test.go:83: analyzer dictionary not present at /usr/share/infinity/resource (stat /usr/share/infinity/resource/rag/huqie.trie: no such file or directory); run ragflow_deps/download_deps.py"
+    },
+    {
+      "package": "ragflow/internal/tokenizer",
+      "test": "TestReleaseAfterCloseSelfClosesInstance",
+      "reason": "tokenizer_close_race_test.go:148: analyzer dictionary not present at /usr/share/infinity/resource (stat /usr/share/infinity/resource/rag/huqie.trie: no such file or directory); run ragflow_deps/download_deps.py"
+    },
+    {
+      "package": "ragflow/internal/tokenizer",
+      "test": "TestConcurrentCloseIsIdempotent",
+      "reason": "tokenizer_close_race_test.go:175: analyzer dictionary not present at /usr/share/infinity/resource (stat /usr/share/infinity/resource/rag/huqie.trie: no such file or directory); run ragflow_deps/download_deps.py"
+    },
+    {
+      "package": "ragflow/internal/tokenizer",
+      "test": "TestInitAfterCloseRebuildsPool",
+      "reason": "tokenizer_close_race_test.go:219: analyzer dictionary not present at /usr/share/infinity/resource (stat /usr/share/infinity/resource/rag/huqie.trie: no such file or directory); run ragflow_deps/download_deps.py"
+    },
+    {
+      "package": "ragflow/internal/tokenizer",
+      "test": "TestTokenizeCloseRaceStress",
+      "reason": "tokenizer_close_race_test.go:251: analyzer dictionary not present at /usr/share/infinity/resource (stat /usr/share/infinity/resource/rag/huqie.trie: no such file or directory); run ragflow_deps/download_deps.py"
+    },
+    {
+      "package": "ragflow/tools/covsweep",
+      "test": null,
+      "reason": ""
+    },
+    {
+      "package": "ragflow/tools/mdprobe",
+      "test": null,
+      "reason": ""
+    }
+  ],
+  "note": "final results only; earlier failed attempts preserved under logs/attempt-* and initial-go-tests.*"
+}

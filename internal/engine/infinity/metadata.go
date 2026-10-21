@@ -547,8 +547,18 @@ func (e *Engine) DeleteMetadataKeys(ctx context.Context, docID string, datasetID
 
 // DropMetadataStore drops a metadata table from Infinity
 func (e *Engine) DropMetadataStore(ctx context.Context, tenantID string) error {
-	tableName := buildMetadataTableName(tenantID)
-	return e.dropTable(ctx, tableName)
+	if tenantID == "" {
+		return fmt.Errorf("tenantID cannot be empty")
+	}
+	db, release, err := e.client.checkoutDatabase(ctx, "DropMetadataStore")
+	if err != nil {
+		return fmt.Errorf("get metadata database: %w", err)
+	}
+	defer release()
+	// A new tenant may never have created metadata. Cleanup must also be
+	// safe when retried after a partial deletion or another cleanup worker.
+	_, err = db.DropTable(buildMetadataTableName(tenantID), infinity.ConflictTypeIgnore)
+	return err
 }
 
 // MetadataStoreExists checks if a metadata table exists in Infinity

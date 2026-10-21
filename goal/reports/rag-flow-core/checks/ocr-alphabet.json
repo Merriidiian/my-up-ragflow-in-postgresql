@@ -1,0 +1,15 @@
+{
+  "image": "infiniflow/ragflow@sha256:2fc19b4c8bbb589e6ea2debd641e1e83a92ad5f9b398c121d46c9f56f296ba6e",
+  "resource": "/ragflow/internal/rag/res/deepdoc/ocr.res",
+  "sha256": "28b2362ad4ab2dc38769aa72feb535e3a9ddb3fd2a7585a05920e6393b1dc7f7",
+  "tokens": 6623,
+  "decoder_classes": 6625,
+  "cyrillic_tokens": 6,
+  "missing_control_characters": [
+    "Н",
+    "а",
+    "в",
+    "е"
+  ],
+  "result": "Russian control fact cannot be represented by the installed CTC vocabulary. Compatible recognition weights and vocabulary are required together; no runtime switched."
+}

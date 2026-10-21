@@ -1,0 +1,24 @@
+{
+  "base_url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pcre2/",
+  "architecture": "arm64",
+  "packages": {
+    "libpcre2-dev_10.42-4ubuntu2.1_arm64.deb": "7a7701e6c1224666b7fbd4cacface20ad80dd9c3345ccdcf7ee56fb0babe9ffe",
+    "libpcre2-16-0_10.42-4ubuntu2.1_arm64.deb": "7107acef45dfa3f29764b8b2be6826bfc3c0fb5de067f21280112bb475cb3a99",
+    "libpcre2-32-0_10.42-4ubuntu2.1_arm64.deb": "5b2047f3fc4acdcd96b5d471e5d398cb4adec487bd0bced68da210881d8f4bc7",
+    "libpcre2-posix3_10.42-4ubuntu2.1_arm64.deb": "9693e4d1fc627de71072b3c902cb95fa1bc0676c775cc875725aeffa7d512e38",
+    "pkgconf-bin_1.8.1-2build1_arm64.deb": "bcd0d24c48b8b73ed7ba20ffc21a3575d5d9bdd53c3cee5a8051b7bde5fbf638",
+    "libpkgconf3_1.8.1-2build1_arm64.deb": "f476cb81e1ecec6bf974f21181469cf5edcc749c4ead621469cdbf584dfd3be8",
+    "pkgconf_1.8.1-2build1_arm64.deb": "818ac3b4ae09f3747098872c7d5a9e387118798155b0107bb1625c2ab675664b",
+    "pkg-config_1.8.1-2build1_arm64.deb": "460d166c529651438347548fc1b2731440ce52c2643f678ec993a29dce5a3647"
+  },
+  "versions": {
+    "pcre2": "10.42-4ubuntu2.1",
+    "pkgconf": "1.8.1-2build1"
+  },
+  "urls": {
+    "pkgconf-bin_1.8.1-2build1_arm64.deb": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pkgconf/pkgconf-bin_1.8.1-2build1_arm64.deb",
+    "libpkgconf3_1.8.1-2build1_arm64.deb": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pkgconf/libpkgconf3_1.8.1-2build1_arm64.deb",
+    "pkgconf_1.8.1-2build1_arm64.deb": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pkgconf/pkgconf_1.8.1-2build1_arm64.deb",
+    "pkg-config_1.8.1-2build1_arm64.deb": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pkgconf/pkg-config_1.8.1-2build1_arm64.deb"
+  }
+}

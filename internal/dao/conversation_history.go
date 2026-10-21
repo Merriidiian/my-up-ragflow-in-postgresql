@@ -182,7 +182,7 @@ func updateConversationHistory(ctx context.Context, db *gorm.DB, messageTable, r
 		values := messageValues(fields)
 		values["conversation_id"], values["position"] = conversationID, position
 		// A reserved answer slot cannot overwrite a later question.
-		if err := db.WithContext(ctx).Table(messageTable).Create(values).Error; err != nil {
+		if err := historyInsertDB(ctx, db, messageTable).Create(values).Error; err != nil {
 			return err
 		}
 	}
@@ -195,7 +195,7 @@ func updateConversationHistory(ctx context.Context, db *gorm.DB, messageTable, r
 		if update.Message != nil {
 			row["message_position"] = position
 		}
-		return db.WithContext(ctx).Table(referenceTable).Create(row).Error
+		return historyInsertDB(ctx, db, referenceTable).Create(row).Error
 	}
 	return nil
 }
@@ -335,7 +335,7 @@ func createHistory(ctx context.Context, db *gorm.DB, table, kind, conversationID
 	if len(rows) == 0 {
 		return nil
 	}
-	return db.WithContext(ctx).Table(table).CreateInBatches(rows, 100).Error
+	return historyInsertDB(ctx, db, table).CreateInBatches(rows, 100).Error
 }
 
 // historyRows flattens a message or reference payload into child rows. Its
@@ -453,4 +453,24 @@ func deleteHistory(ctx context.Context, db *gorm.DB, tables []string, conversati
 		}
 	}
 	return nil
+}
+
+// PostgreSQL has no LastInsertId. Supplying the composite-key model lets GORM
+// know these map inserts already contain their keys, including batch inserts.
+func historyInsertDB(ctx context.Context, db *gorm.DB, table string) *gorm.DB {
+	query := db.WithContext(ctx).Table(table)
+	if db.Dialector.Name() != "postgres" {
+		return query
+	}
+	switch table {
+	case conversationMessageTable:
+		return query.Model(&entity.ConversationMessage{})
+	case conversationReferenceTable:
+		return query.Model(&entity.ConversationReference{})
+	case apiConversationMessageTable:
+		return query.Model(&entity.API4ConversationMessage{})
+	case apiConversationReferenceTable:
+		return query.Model(&entity.API4ConversationReference{})
+	}
+	return query
 }

@@ -1,0 +1,18 @@
+{
+  "all_final_runner_checks_passed": true,
+  "fixtures_removed": true,
+  "cli_migrate_repeated_preserves_seed_hash": true,
+  "native_runtime_smoke_passed": true,
+  "runtime_matches_final_build": true,
+  "critical_sources_preserved": true,
+  "legacy_sources_unchanged": true,
+  "gofmt_passed": true,
+  "local_links_passed": true,
+  "work_remaining": [
+    "Russian OCR end-to-end",
+    "new full-stack HTTP/ACL/inference audit",
+    "real Keycloak identity mapping",
+    "coordinated full-stack restore",
+    "live pg3 deployment intentionally not performed"
+  ]
+}

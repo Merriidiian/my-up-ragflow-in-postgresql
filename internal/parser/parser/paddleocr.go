@@ -183,7 +183,9 @@ func (c *PaddleOCRClient) submitJob(binary []byte, filename string, deadline tim
 	if c.AccessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	}
-	req = req.WithContext(withDeadline(req.Context(), deadline))
+	requestCtx, cancel := withDeadline(req.Context(), deadline)
+	defer cancel()
+	req = req.WithContext(requestCtx)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -220,6 +222,8 @@ func (c *PaddleOCRClient) submitJob(binary []byte, filename string, deadline tim
 // Uses exponential backoff: 3s initial, 1.5x multiplier, 15s max.
 // Returns the final poll response data.
 func (c *PaddleOCRClient) pollJob(jobID string, deadline time.Time) (map[string]any, error) {
+	pollCtx, cancel := withDeadline(context.Background(), deadline)
+	defer cancel()
 	pollURL := fmt.Sprintf("%s/%s", c.BaseURL+paddleOCRSubmitPath, jobID)
 	interval := paddleOCRPollInterval
 
@@ -240,16 +244,16 @@ func (c *PaddleOCRClient) pollJob(jobID string, deadline time.Time) (map[string]
 			req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 		}
 		req.Header.Set("Client-Platform", "ragflow")
-		req = req.WithContext(withDeadline(req.Context(), deadline))
+		req = req.WithContext(pollCtx)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("poll %s: %w", jobID, err)
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
 			return nil, fmt.Errorf("poll HTTP %d: %s", resp.StatusCode, string(body))
 		}
 
@@ -261,7 +265,11 @@ func (c *PaddleOCRClient) pollJob(jobID string, deadline time.Time) (map[string]
 			State    string `json:"state"`
 			ErrorMsg string `json:"errorMsg"`
 		}
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read poll response: %w", readErr)
+		}
 		if err := json.Unmarshal(bodyBytes, &pollResp); err != nil {
 			return nil, fmt.Errorf("decode poll response: %w", err)
 		}
@@ -321,7 +329,9 @@ func (c *PaddleOCRClient) fetchResult(pollData map[string]any, deadline time.Tim
 	if c.AccessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	}
-	req = req.WithContext(withDeadline(req.Context(), deadline))
+	requestCtx, cancel := withDeadline(req.Context(), deadline)
+	defer cancel()
+	req = req.WithContext(requestCtx)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -446,12 +456,11 @@ func removeMarkdownImages(md string) string {
 
 // withDeadline applies a deadline to a context, respecting the existing
 // deadline if it is sooner.
-func withDeadline(ctx context.Context, deadline time.Time) context.Context {
+func withDeadline(ctx context.Context, deadline time.Time) (context.Context, context.CancelFunc) {
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		return ctx
+		return ctx, func() {}
 	}
-	newCtx, _ := context.WithDeadline(ctx, deadline)
-	return newCtx
+	return context.WithDeadline(ctx, deadline)
 }
 
 func firstNonEmpty(a, b string) string {

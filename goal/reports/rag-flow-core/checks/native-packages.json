@@ -1,0 +1,14 @@
+{
+  "lock": "native-packages.lock.json",
+  "checks": {
+    "libpcre2-dev_10.42-4ubuntu2.1_arm64.deb": true,
+    "libpcre2-16-0_10.42-4ubuntu2.1_arm64.deb": true,
+    "libpcre2-32-0_10.42-4ubuntu2.1_arm64.deb": true,
+    "libpcre2-posix3_10.42-4ubuntu2.1_arm64.deb": true,
+    "pkgconf-bin_1.8.1-2build1_arm64.deb": true,
+    "libpkgconf3_1.8.1-2build1_arm64.deb": true,
+    "pkgconf_1.8.1-2build1_arm64.deb": true,
+    "pkg-config_1.8.1-2build1_arm64.deb": true
+  },
+  "passed": true
+}

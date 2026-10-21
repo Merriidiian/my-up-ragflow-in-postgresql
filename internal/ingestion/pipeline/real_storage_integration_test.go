@@ -27,12 +27,16 @@ import (
 	"ragflow/internal/server/config"
 	"ragflow/internal/storage"
 
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"net/url"
+	"ragflow/internal/dbcompat"
 )
 
-func TestPipelineRun_TemplateGeneral_RealMySQLMinIO_OutputShape(t *testing.T) {
+func TestPipelineRun_TemplateGeneral_RealPostgresMinIO_OutputShape(t *testing.T) {
+	if os.Getenv("VSM_PG_TEST_DSN") == "" {
+		t.Skip("requires isolated PostgreSQL test database")
+	}
 	prepareTokenizerResourceForIntegration(t)
 	RequireTokenizerPool(t)
 
@@ -47,7 +51,7 @@ func TestPipelineRun_TemplateGeneral_RealMySQLMinIO_OutputShape(t *testing.T) {
 	})
 
 	cfg := mustLoadRealIntegrationConfig(t)
-	realDB := mustOpenRealMySQL(t, cfg)
+	realDB := mustOpenRealPostgres(t)
 	if err := realDB.AutoMigrate(
 		&entity.Tenant{},
 		&entity.Knowledgebase{},
@@ -209,7 +213,7 @@ func mustLoadRealIntegrationConfig(t *testing.T) *config.Config {
 		t.Fatalf("init service config from %s: %v", configPath, err)
 	}
 	cfg := server.GetConfig()
-	if cfg == nil || cfg.GetMySQLConfig().Host == "" || cfg.GetMinioConfig().Host == "" {
+	if cfg == nil || cfg.GetPostgresConfig().Host == "" || cfg.GetMinioConfig().Host == "" {
 		t.Fatal("real integration config is incomplete")
 	}
 	return cfg
@@ -320,22 +324,39 @@ func mustPrepareTokenizerOpenCC(t *testing.T, root string) {
 	mustSymlink(t, systemOpenCC, filepath.Join(root, "opencc"))
 }
 
-func mustOpenRealMySQL(t *testing.T, cfg *config.Config) *gorm.DB {
+// Require an explicitly disposable test database; never infer it from runtime config.
+func mustOpenRealPostgres(t *testing.T) *gorm.DB {
 	t.Helper()
-	mc := cfg.GetMySQLConfig()
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
-		mc.User,
-		mc.Password,
-		mc.Host,
-		mc.Port,
-		mc.DatabaseName,
-		mc.Charset,
-	)
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
+	dsn := os.Getenv("VSM_PG_TEST_DSN")
+	if dsn == "" {
+		t.Skip("requires isolated PostgreSQL test database")
+	}
+	base, err := dbcompat.Open(dsn, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
-		t.Fatalf("connect real mysql: %v", err)
+		t.Fatal("open isolated PostgreSQL")
+	}
+	pool, _ := base.DB()
+	name := fmt.Sprintf("pipeline_%d", time.Now().UnixNano())
+	if err := base.Exec("CREATE SCHEMA " + name).Error; err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { base.Exec("DROP SCHEMA " + name + " CASCADE"); pool.Close() })
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal("invalid isolated PostgreSQL DSN")
+	}
+	q := u.Query()
+	q.Set("search_path", name)
+	u.RawQuery = q.Encode()
+	db, err := dbcompat.Open(u.String(), &gorm.Config{TranslateError: true, Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatal("open scoped PostgreSQL")
+	}
+	scoped, _ := db.DB()
+	t.Cleanup(func() { scoped.Close() })
+	if err := dao.PreparePostgresMetadata(context.Background(), db); err != nil {
+		t.Fatal(err)
 	}
 	return db
 }

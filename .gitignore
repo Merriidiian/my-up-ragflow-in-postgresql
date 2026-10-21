@@ -278,3 +278,21 @@ ragflow_deps/*.zip
 # external DeepDoc testdata, fetched on demand via scripts/fetch_deepdoc_testdata.sh
 # (symlinked into place from ~/.cache/ragflow-testdata; never committed)
 internal/deepdoc/native/testdata
+
+# PostgreSQL migration component build outputs
+/bin/
+/.cache/
+/coverage/
+/internal/binding/cpp/cmake-build-release/
+/internal/binding/cpp/cmake-build-debug/
+/internal/rag/res/deepdoc/
+/ragflow_deps/cl100k_base.tiktoken
+*.log
+*.pyc
+__pycache__/
+.env
+.env.*
+
+# Provision deployment RSA keys outside Git
+/conf/*.pem
+/conf/*.key

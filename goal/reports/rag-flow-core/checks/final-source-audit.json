@@ -1,0 +1,172 @@
+{
+  "legacy_unchanged": true,
+  "legacy_changed": [],
+  "initial_files": 3214,
+  "changed": [
+    {
+      "path": "cmd/ragflow_server.go",
+      "original_sha256": "9eb8a8c416fb12f8282124fd6a863f0bb3af90917b892ef27c94282ee1b98f06",
+      "current_sha256": "5da2057f25f72ec95b9468d4dda5f4cbbd50dbda62c805876384f6a1eaa962c5"
+    },
+    {
+      "path": "conf/service_conf.yaml",
+      "original_sha256": "a6b4fdead9e00c58b29b1e73b976b2b3cde3ce87d91d2acd3dad8d433af65fc3",
+      "current_sha256": "1b6a7038c8a92fc505f9511e9bad29f63b738efff00464abfaa4851ab8aeb4bc"
+    },
+    {
+      "path": "internal/admin/service.go",
+      "original_sha256": "2670641284e5328a37084f4ff7d83ec8a607d86ef835eead60da6f612cd47fdc",
+      "current_sha256": "63dc073d22b7c437e1e9a1542ae934d4278686863a762adf21f04065ec58fe21"
+    },
+    {
+      "path": "internal/dao/database.go",
+      "original_sha256": "078be40c629d39e3471db403cfeb921852b8b42bf94897ac1c832ac1835d292a",
+      "current_sha256": "4bc007912651ac25081fc63bd308b6daa88517c4f5ee84d2a3e4e149d124f57a"
+    },
+    {
+      "path": "internal/dao/postgres_contract_test.go",
+      "original_sha256": "085692096a44337efac062ba7013abcc1a8fce51052345e8dad79ac1cfb0edf7",
+      "current_sha256": "5562454ef2862e703d6b555864cc8380fbf977185ac956c9dad3333ace5107f7"
+    },
+    {
+      "path": "internal/engine/kvrocks/kvrocks_config_test.go",
+      "original_sha256": "7503f421d6529d6f97c541fa0cd1fc56fb1d77773993745e52832cf5a58ffae5",
+      "current_sha256": "ee07f5de401a799e337704efb3fe9fa519f863fa59969f540b59e43a056e3e39"
+    },
+    {
+      "path": "internal/ingestion/pipeline/real_storage_integration_test.go",
+      "original_sha256": "5890fc54e9bb91d9d118cf4770894cac9f810bb2345d0d26d730ceee8712ccc7",
+      "current_sha256": "60f67f9662f9330c11160a5d94a06ec833fcd71229fd489dd24ccde2c1a1ac7f"
+    },
+    {
+      "path": "internal/server/config/database_config.go",
+      "original_sha256": "0f77e620398da3e3b48d7cdad705b900f75093c0794b8d7ac65611d624822a67",
+      "current_sha256": "8df119e0e1778b52337a15b5627138bc67bf71cc343c73bc6da72116d876a351"
+    },
+    {
+      "path": "internal/server/config/doc_engine_config.go",
+      "original_sha256": "d470e041ca9075a9d8964cf244306ef33ddea062abdea1dd2ac22344c4efc6ba",
+      "current_sha256": "7b7d2a2e8384f961ad7d0ee92f2937d01432982bc6554414f3d8115ec411b4d3"
+    },
+    {
+      "path": "internal/server/config/environments.go",
+      "original_sha256": "dcfee6f485bf168eba75597ebfc31c0575ca7a0b01934bf447f140c8a6370063",
+      "current_sha256": "ff762899c9c469f2d92ba74ca112ed7f35d7247b103c00e8a2c87b56d468c3a5"
+    },
+    {
+      "path": "internal/server/config/general_config.go",
+      "original_sha256": "b06aa34b44db16a2f678cceab66032bb0996e397c44aca8829ab6f8b6ea34450",
+      "current_sha256": "cba2626b8e4fde78cade28b04693a3259cb1f1fdde0c81af915fee70672e031c"
+    },
+    {
+      "path": "internal/server/config/oceanbase_config_test.go",
+      "original_sha256": "70e74c6328eea1ff02ad409359d8f0c747a12d3a14d2685664ad88a6d77ac022",
+      "current_sha256": "33232847a956114136dd9e09b25c02ab184d37d6721ade64c643e0bf63b45658"
+    },
+    {
+      "path": "internal/server/config/postgres_test.go",
+      "original_sha256": "53c996cce65de5e06fc6b46b77e490518769ae12c4b0524ec7ff9118d0e83ec3",
+      "current_sha256": "751137b9e2c11782c6c9012259b25c44a3a93f9ea44c9d89e9bbe0c5323b9800"
+    },
+    {
+      "path": "internal/server/config.go",
+      "original_sha256": "8d94434397815d2f2ab1c5f3244344fa0f1eb4ba84f77a31fea5ac490a787d53",
+      "current_sha256": "78d725020c0658237ce3f28cfb1a688e1e04841d7f67f2a4751398cb452ad7a4"
+    },
+    {
+      "path": "internal/server/config_getallconfigs_test.go",
+      "original_sha256": "e89e92016a243e502d26571fb3fe91609a9b2f3fe232e430ae7e45b7ee1ed34a",
+      "current_sha256": "1bd9851f96693f890ef3b790a9d705a334250dab3e0e78098b7533381c799f72"
+    },
+    {
+      "path": "internal/service/document/sync_document_lock.go",
+      "original_sha256": "f2c7d794440046f7130812a690dd732939a83ed2c8c2c1b3df59b1896beebdef",
+      "current_sha256": "a7680502894a07e4b8a98e9738e75d7710a61dafc12f5806376088e08011c258"
+    },
+    {
+      "path": "internal/utility/mcp_ssrf_test.go",
+      "original_sha256": "4da71aa6d2b70384eb3ad5ea51960407d32b45dad951298f67952cdde862d9d9",
+      "current_sha256": "39f6d39232af29cf26e13ba3a016965b46bedb854bc63564580a7c0bb18aa7df"
+    }
+  ],
+  "missing": [
+    "internal/dao/mysql_session.go"
+  ],
+  "moves": [
+    {
+      "from": "internal/dao/mysql_session.go",
+      "to": "internal/dao/legacy_mysql_session_test.go",
+      "content_preserved": true
+    }
+  ],
+  "added": [
+    {
+      "path": "Dockerfile",
+      "sha256": "f4e0d921ebcc056c9ebf9fd6b558bd53d582259fe9318f395671e221003c2c67"
+    },
+    {
+      "path": "README.md",
+      "sha256": "be2b45f118716eb2632eb7944293138ecd780c7b8191d683ccc94aa4d0d41830"
+    },
+    {
+      "path": ".dockerignore",
+      "sha256": "a66bb9856d2c35c1abf5a73e2a3e0986c421e5a4ca60d82722d5c7a9f8ae7e01"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "2a3746eb11b479688a062b209232b3147c13ac3c2adb8ab6dc000bf0ebf9b108"
+    },
+    {
+      "path": "VERSION",
+      "sha256": "52e51a67c96c940a93d4734e8966dc99f4b80c53680f67b4d5a48a28910164e5"
+    },
+    {
+      "path": "native-packages.lock.json",
+      "sha256": "66252b6e8ae8263a5ebd7775ee42a0ebec25df37ec621ac43dec4b8deac92632"
+    },
+    {
+      "path": "scripts/check_ocr_vocabulary.py",
+      "sha256": "06b3b8bce7449219b7c69119a7f2940095dbc2370af9454a14ddef1087942cc2"
+    },
+    {
+      "path": "scripts/test_postgres_isolated.py",
+      "sha256": "4101cdd02c7a7b50d9490cdf8abd3e552eb677b1f2dbfc65141a4d515dae1932"
+    },
+    {
+      "path": "scripts/test_ocr_vocabulary.py",
+      "sha256": "ba39960c8b52a79bc1339cfc1bff16666d811e2846421adbe6bcf1ca7bdefcc5"
+    },
+    {
+      "path": "scripts/offline-go.sh",
+      "sha256": "68081f53680eb394fd29932d7a2e7fa829a08312cdfe8d716523733aadc9b5ef"
+    },
+    {
+      "path": "internal/dao/legacy_mysql_migration_test.go",
+      "sha256": "1f85c3716d77ebc8209624cb52a38d8bc51a83ac1587635c71a38fa2bbcc125a"
+    },
+    {
+      "path": "internal/dao/legacy_mysql_session_test.go",
+      "sha256": "d1f0ed92067e760aecb4589f95e7af7bc3ebf3c9b775676d4879b0f74c3dc041"
+    },
+    {
+      "path": "internal/engine/kvrocks/testdata/upstream-compose-base.yml",
+      "sha256": "c536465a66d27d1c0ccb194eefe0566743a0dc542e8a56514c7d98d057c50b4a"
+    },
+    {
+      "path": "internal/service/document/legacy_mysql_lock_test.go",
+      "sha256": "286f506701f06e2ae2a37d1a6602f60e606172c8d6118977d3c4973678530f60"
+    }
+  ],
+  "critical_preserved": {
+    "cmd/pg_migrate/main.go": true,
+    "go.mod": true,
+    "go.sum": true,
+    "internal/dao/postgres_import.go": true,
+    "internal/dao/postgres_import_test.go": true,
+    "internal/dao/postgres_schema_v3.json": true
+  },
+  "gofmt_unformatted": [],
+  "go_modules": [
+    "rag-flow-core/go.mod"
+  ]
+}

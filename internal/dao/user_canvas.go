@@ -51,7 +51,11 @@ func applyUserCanvasTagFilter(ctx context.Context, db *gorm.DB, query *gorm.DB, 
 			continue
 		}
 		pattern := "(^|,)[[:space:]]*" + regexp.QuoteMeta(tag) + "[[:space:]]*(,|$)"
-		cond := db.WithContext(ctx).Where("user_canvas.tags REGEXP ?", pattern)
+		operator := "REGEXP"
+		if db.Dialector.Name() == "postgres" {
+			operator = "~*"
+		}
+		cond := db.WithContext(ctx).Where("user_canvas.tags "+operator+" ?", pattern)
 		if !hasTag {
 			tagQuery = tagQuery.Where(cond)
 			hasTag = true

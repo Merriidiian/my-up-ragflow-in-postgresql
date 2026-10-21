@@ -105,10 +105,11 @@ func TestMaskConfigCredentialsIgnoresCase(t *testing.T) {
 // configured with `cache_engine: kvrocks`, GetAllConfigs must export the Kvrocks
 // connection settings instead of failing with "not supported cache engine".
 func TestGetAllConfigsKvrocksCacheEngine(t *testing.T) {
+	t.Setenv("RAGFLOW_POSTGRES_PASSWORD", "test-only-password")
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "service_conf.yaml")
 	// Only cache_engine is overridden; the remaining engine types keep the
-	// ParseGeneralConfig defaults (mysql/elasticsearch/minio/nats/clickhouse),
+	// ParseGeneralConfig defaults (postgres/elasticsearch/minio/nats/clickhouse),
 	// so GetAllConfigs only fails on the cache-engine dispatch.
 	content := `
 general:
@@ -143,6 +144,7 @@ kvrocks:
 }
 
 func TestMCPConfigurationDoesNotLogKey(t *testing.T) {
+	t.Setenv("RAGFLOW_POSTGRES_PASSWORD", "test-only-password")
 	path := filepath.Join(t.TempDir(), "service_conf.yaml")
 	const secret = "test-only-mcp-secret"
 	if err := os.WriteFile(path, []byte("mcp: {host_api_key: "+secret+", launch_mode: host}\n"), 0600); err != nil {

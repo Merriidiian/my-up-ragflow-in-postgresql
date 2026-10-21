@@ -78,7 +78,11 @@ func NewNatsEngine(host string, port int) *NatsEngine {
 func (n *NatsEngine) Init() error {
 	var err error
 	natsURL := fmt.Sprintf("nats://%s:%d", n.host, n.port)
-	n.nc, err = nats.Connect(natsURL)
+	options := []nats.Option{}
+	if token := common.GetEnv("RAGFLOW_NATS_TOKEN"); token != "" {
+		options = append(options, nats.Token(token))
+	}
+	n.nc, err = nats.Connect(natsURL, options...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS at %s: %w", natsURL, err)
 	}

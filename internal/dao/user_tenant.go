@@ -134,11 +134,15 @@ type TenantMemberItem struct {
 // update_date is formatted as "2006-01-02T15:04:05" (no timezone) to match the Python API.
 func (dao *UserTenantDAO) GetMembersByTenantID(ctx context.Context, db *gorm.DB, tenantID string) ([]*TenantMemberItem, error) {
 	var results []*TenantMemberItem
+	dateExpr := "DATE_FORMAT(user.update_date, '%Y-%m-%dT%H:%i:%s')"
+	if db.Dialector.Name() == "postgres" {
+		dateExpr = `to_char("user".update_date, 'YYYY-MM-DD"T"HH24:MI:SS')`
+	}
 	err := db.WithContext(ctx).Table("user_tenant").
 		Select("user_tenant.id, user_tenant.user_id, user_tenant.role, user_tenant.status, "+
 			"user.nickname, user.email, user.avatar, user.is_authenticated, "+
 			"user.status AS is_active, user.is_anonymous, user.is_superuser, "+
-			"DATE_FORMAT(user.update_date, '%Y-%m-%dT%H:%i:%s') AS update_date").
+			dateExpr+" AS update_date").
 		Joins("JOIN user ON user_tenant.user_id = user.id").
 		Where("user_tenant.tenant_id = ? AND user_tenant.status = ? AND user_tenant.role != ?",
 			tenantID, "1", "owner").

@@ -24,6 +24,7 @@ import (
 
 func stubLookupHost(t *testing.T, ips []string) {
 	t.Helper()
+	t.Setenv("RAGFLOW_POSTGRES_PASSWORD", "test-only-password")
 	original := common.LookupHost
 	common.LookupHost = func(string) ([]string, error) { return ips, nil }
 	t.Cleanup(func() { common.LookupHost = original })

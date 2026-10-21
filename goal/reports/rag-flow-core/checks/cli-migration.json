@@ -1,0 +1,22 @@
+{
+  "kind": "new runtime binary migration on disposable PG18.6 only",
+  "image_id": "sha256:adc6da0324f7bc2e70fc4f9f8183de15b769646edc5a057d925c21d2d964166f",
+  "runs": [
+    {
+      "attempt": 1,
+      "exit_code": 0,
+      "migration_completed": true,
+      "metadata_snapshot": "vsm-ragflow-rc2-pg-3\n54\n19|be48ffbdb6d8831b15865cdb66090773"
+    },
+    {
+      "attempt": 2,
+      "exit_code": 0,
+      "migration_completed": true,
+      "metadata_snapshot": "vsm-ragflow-rc2-pg-3\n54\n19|be48ffbdb6d8831b15865cdb66090773"
+    }
+  ],
+  "repeat_preserved_metadata": true,
+  "importer_refused_without_offline_confirmation": true,
+  "passed": true,
+  "cleaned_up": true
+}

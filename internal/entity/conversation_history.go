@@ -47,7 +47,7 @@ func (ConversationMessage) TableName() string {
 type ConversationReference struct {
 	ConversationID string          `gorm:"column:conversation_id;primaryKey;size:32" json:"conversation_id"`
 	Position       int             `gorm:"column:position;primaryKey;autoIncrement:false" json:"position"`
-	Reference      json.RawMessage `gorm:"column:reference;type:longtext;not null" json:"reference"`
+	Reference      json.RawMessage `gorm:"column:reference;type:longtext;not null;serializer:json" json:"reference"`
 	MessagePos     *int            `gorm:"column:message_position" json:"-"`
 	Conversation   ChatSession     `gorm:"foreignKey:ConversationID;references:ID;constraint:OnDelete:CASCADE" json:"-"`
 }
@@ -72,7 +72,7 @@ func (API4ConversationMessage) TableName() string {
 type API4ConversationReference struct {
 	ConversationID string           `gorm:"column:conversation_id;primaryKey;size:32" json:"conversation_id"`
 	Position       int              `gorm:"column:position;primaryKey;autoIncrement:false" json:"position"`
-	Reference      json.RawMessage  `gorm:"column:reference;type:longtext;not null" json:"reference"`
+	Reference      json.RawMessage  `gorm:"column:reference;type:longtext;not null;serializer:json" json:"reference"`
 	MessagePos     *int             `gorm:"column:message_position" json:"-"`
 	Conversation   API4Conversation `gorm:"foreignKey:ConversationID;references:ID;constraint:OnDelete:CASCADE" json:"-"`
 }

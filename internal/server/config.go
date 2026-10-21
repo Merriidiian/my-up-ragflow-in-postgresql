@@ -178,10 +178,8 @@ func GetAllConfigs() ([]map[string]interface{}, error) {
 	// Database
 	databaseType := globalConfig.DatabaseType()
 	switch databaseType {
-	case "mysql", "oceanbase":
-		mysqlConfig := globalConfig.GetMySQLConfig()
-		exportedMySQLConfigs := mysqlConfig.ExportConfigs()
-		allConfigs = append(allConfigs, exportedMySQLConfigs)
+	case "postgres":
+		allConfigs = append(allConfigs, globalConfig.GetPostgresConfig().ExportConfigs())
 	default:
 		return nil, fmt.Errorf("not supported database: %s", databaseType)
 	}

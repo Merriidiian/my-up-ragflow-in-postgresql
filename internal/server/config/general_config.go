@@ -40,7 +40,7 @@ func (c *Config) ParseGeneralConfig(v *viper.Viper) error {
 	// Default General config
 	c.general.HeartbeatInterval = 3 * time.Second
 	c.general.Mode = "release"
-	c.general.Database = "mysql"
+	c.general.Database = "postgres"
 	c.general.DocEngine = "elasticsearch"
 	c.general.StorageEngine = "minio"
 	c.general.CacheEngine = "redis"

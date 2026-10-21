@@ -1,0 +1,80 @@
+[
+  {
+    "path": ".local/reports/ragflow-cgo-summary.json",
+    "exists": true,
+    "sha256": "480ad0691f3e05abbc53c75fd5764020bc5f6a4db68ff197e746f0a361c96c0f",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/reports/mysql-pg-import.json",
+    "exists": true,
+    "sha256": "cba9ad1b49b8d9ab274bece95855cd6fd4409e615b51dc02832129b985fcca39",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/reports/ragflow-functions.json",
+    "exists": true,
+    "sha256": "c08a669d3d55a23e9a4660bb1c1fd11123e7c4a368c630c1afc27de97fe515ba",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/reports/ragflow-route-inventory.json",
+    "exists": true,
+    "sha256": "317ed174ad3aa8ff467a47dada41e01871292aaeea327a3dd1026131ed6e26b7",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/reports/ragflow-formats.json",
+    "exists": true,
+    "sha256": "7f4b7f6d499039de3cd678ee816ababb9f4f4ff2ade6d1f335892aaa0817626e",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/reports/ragflow-recovery.json",
+    "exists": true,
+    "sha256": "18db003af5fed0b590cf8bf3c4afdeaf39c141f7d2af84b913aca987ed167d82",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/reports/rag-chain.json",
+    "exists": true,
+    "sha256": "2a8a2b54990de3476c469bc9b85a2a70447bd050512896de9770f950016cffca",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/reports/ragflow-pg-api.json",
+    "exists": true,
+    "sha256": "6d6978f5ffa83d798770f377e50d726336382b8357059cf1f0aa133e8c1f8f2e",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/reports/isolation.json",
+    "exists": true,
+    "sha256": "f64838fa16de45947a263e79b768218c77c38335c17ea27ad957228989378632",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/ragflow-pg/.pg-vet.log",
+    "exists": true,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": ".local/ragflow-pg/.pg-final-unit.log",
+    "exists": true,
+    "sha256": "6a05a3b32e22e41a716b205df1ba7cc0a713d40928b2821f352771ea2076cda8",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": "docs/postgresql-validation-2026-10-21.md",
+    "exists": true,
+    "sha256": "7a91809a2b3b3bc8b069f5ee702520a044e58f5928149d019cb0efc9dd5bcb46",
+    "classification": "inherited evidence, not a new execution"
+  },
+  {
+    "path": "docs/adr/0008-postgresql-18-6-and-schema-contract.md",
+    "exists": true,
+    "sha256": "9f273b99257c308a605ae9afb01ab12b920d19ca33273f8205febebce932e863",
+    "classification": "inherited evidence, not a new execution"
+  }
+]

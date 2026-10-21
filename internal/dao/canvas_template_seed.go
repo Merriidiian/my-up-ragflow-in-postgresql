@@ -37,7 +37,11 @@ import (
 // SeedCanvasTemplates seeds the canvas_template table from the built-in
 // agent/templates/*.json and internal/ingestion/pipeline/template/*.json files.
 func SeedCanvasTemplates(ctx context.Context, db *gorm.DB) error {
-	if err := addColumnIfNotExists(ctx, db, "canvas_template", "parser_ids", "LONGTEXT NULL"); err != nil {
+	if db.Dialector.Name() == "postgres" {
+		if !db.Migrator().HasColumn(&entity.CanvasTemplate{}, "parser_ids") {
+			return fmt.Errorf("PostgreSQL canvas schema missing: run --migrate")
+		}
+	} else if err := addColumnIfNotExists(ctx, db, "canvas_template", "parser_ids", "LONGTEXT NULL"); err != nil {
 		return fmt.Errorf("failed to ensure canvas_template.parser_ids column: %w", err)
 	}
 

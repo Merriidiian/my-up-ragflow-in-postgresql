@@ -1,0 +1,45 @@
+{
+  "images": {
+    "builder": "infiniflow/github_action_runner@sha256:07712b55ee67788c147f5f3974cc5628270e99ce85edfe30c526c21a27a3371e",
+    "postgres": "postgres@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873",
+    "mysql": "mysql@sha256:869218921e61d6c3c89820955d63cca42971f0e3e6c1e2792247bbd944ebc6e9"
+  },
+  "network": "internal, no published ports",
+  "checks": [
+    {
+      "name": "go-tests",
+      "exit_code": 0,
+      "original_workspace_log": "go-tests.jsonl"
+    },
+    {
+      "name": "integration-compile",
+      "exit_code": 0,
+      "original_workspace_log": "integration-compile.log"
+    },
+    {
+      "name": "go-vet",
+      "exit_code": 0,
+      "original_workspace_log": "go-vet.log"
+    },
+    {
+      "name": "server-build",
+      "exit_code": 0,
+      "original_workspace_log": "server-build.log"
+    },
+    {
+      "name": "cli-build",
+      "exit_code": 0,
+      "original_workspace_log": "cli-build.log"
+    },
+    {
+      "name": "import-build",
+      "exit_code": 0,
+      "original_workspace_log": "import-build.log"
+    }
+  ],
+  "cleaned_up": true,
+  "ragflow_server_sha256": "3978eec2c39da44cb61a643024544f374a0c14296908b4d5e312099ed7de7d64",
+  "ragflow_pg_migrate_sha256": "0108e52ea25cb1cc3c0eead2c6dbd6a91556d3dc0dfe6ebfc270a5e87f117a59",
+  "ragflow-cli_sha256": "82ff958d29ee868e11ef2352733d77255f8088accba6a1791c07b8ef4fa6c11a",
+  "publication_note": "Raw logs remain in the original workspace; this export contains checked summaries and result records."
+}

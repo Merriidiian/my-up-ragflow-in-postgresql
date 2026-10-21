@@ -1,5 +1,8 @@
 general:
   heartbeat_interval: 3s
+  database: postgres
+  doc_engine: infinity
+  cache_engine: kvrocks
 api:
   host: 0.0.0.0
   http_port: 9380
@@ -27,15 +30,16 @@ api:
 admin:
   host: 0.0.0.0
   http_port: 9381
-mysql:
-  name: 'rag_flow'
-  user: 'root'
-  password: 'infini_rag_flow'
-  host: 'localhost'
-  port: 3306
-  max_connections: 900
+postgres:
+  name: ragflow
+  user: ragflow
+  host: postgres
+  port: 5432
+  sslmode: verify-full
+  max_connections: 10
   stale_timeout: 300
-  max_allowed_packet: 1073741824
+  # Supply RAGFLOW_POSTGRES_PASSWORD privately; no built-in credential.
+
 minio:
   user: 'rag_flow'
   password: 'infini_rag_flow'
